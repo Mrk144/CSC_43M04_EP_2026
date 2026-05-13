@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader
 
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
 from models.cnn_baseline import CNNBaseline
-from models.cnn_lstm_improved import CNNLSTM
+from models.cnn_lstm import CNNLSTM
 from utils import build_transforms, set_seed, split_train_val
 import torch.optim as optim
 # Rôle : Lier le modèle, la Loss, AdamW et le Scheduler Cosine
@@ -74,12 +74,12 @@ def build_model(cfg: DictConfig) -> nn.Module:
             pretrained=pretrained,
             lstm_hidden_size=int(hidden),
         )
-    elif cfg.model.name == "cnn_lstm_improved":
+    elif name == "cnn_lstm_improved":
         return CNNLSTMImproved(
-            num_classes=cfg.model.num_classes,
-            pretrained=cfg.model.pretrained,
-            lstm_hidden_size=cfg.model.get("lstm_hidden_size", 512),
-            dropout_p=cfg.model.get("dropout", 0.5)
+            num_classes=num_classes,
+            pretrained=pretrained,
+            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 512)),
+            dropout_p=float(cfg.model.get("dropout", 0.5))
         )
 
     raise ValueError(f"Unknown model.name: {name}")

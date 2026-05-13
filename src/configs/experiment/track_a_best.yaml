@@ -3,6 +3,13 @@ defaults:
   - override /model: cnn_lstm_improved
 
 training:
-  batch_size: 16
+  batch_size: 64
   lr: 0.0005
-  epochs: 50
+  epochs: 25
+  optimizer:
+    name: adamw
+    lr: ${training.lr}
+    weight_decay: 0.001
+  loss:
+    name: focal_loss
+    label_smoothing: 0.1

@@ -7,3 +7,15 @@ training:
   # Where to save the best checkpoint (by validation accuracy)
   checkpoint_path: ${hydra:runtime.cwd}/best_model.pt
   device: cuda
+# --- NOUVEAUX PARAMÈTRES ---
+'''  optimizer:
+    name: adamw       # Options: adam, adamw, sgd
+    lr: 1e-3
+    weight_decay: 1e-4
+  
+  loss:
+    name: focal_loss  # Options: cross_entropy, focal_loss
+    label_smoothing: 0.1
+    gamma: 2.0        # Pour Focal Loss
+  
+  activation: gelu    # Options: relu, gelu, elu, leaky_relu'''

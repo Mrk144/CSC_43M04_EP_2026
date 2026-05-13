@@ -43,22 +43,21 @@ def build_transforms(
         normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 
     if is_training:
-        return transforms.Compose(
-            [
-                transforms.Resize((image_size, image_size)),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ]
-        )
-
-    return transforms.Compose(
-        [
+        return transforms.Compose([
+            # Crop aléatoire pour décentrer l'action
+            transforms.RandomResizedCrop(image_size, scale=(0.7, 1.0)),
+            # Jitter pour empêcher le modèle d'apprendre les couleurs spécifiques d'une vidéo
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            # PAS DE HORIZONTAL FLIP
+            transforms.ToTensor(),
+            normalize,
+        ])
+    else:
+        return transforms.Compose([
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
             normalize,
-        ]
-    )
+        ])
 
 
 @torch.no_grad()

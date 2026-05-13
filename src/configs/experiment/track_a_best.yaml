@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - override /model: cnn_lstm_improved
+
+training:
+  batch_size: 16
+  lr: 0.0005
+  epochs: 50

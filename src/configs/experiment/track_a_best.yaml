@@ -1,15 +1,18 @@
 # @package _global_
 defaults:
-  - override /model: cnn_lstm_improved
+  - override /model: cnn_lstm_improved  # On change le modèle ici
 
 training:
-  batch_size: 64
-  lr: 0.0005
-  epochs: 25
+  batch_size: 64         # On augmente pour la stabilité
+  lr: 0.0005             # LR plus fin
+  epochs: 25             # Équilibre anti-overfit
+  num_workers: 12
+  
   optimizer:
-    name: adamw
-    lr: ${training.lr}
+    name: adamw          # On définit l'optimiseur ici
+    lr: ${training.lr}   # Interpolation dynamique
     weight_decay: 0.001
+  
   loss:
-    name: focal_loss
+    name: focal_loss     # On définit la perte ici
     label_smoothing: 0.1

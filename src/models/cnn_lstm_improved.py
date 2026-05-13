@@ -1,5 +1,3 @@
-# Rôle : Le cerveau avec Kaiming Init, GELU, Dropout et Mean Pooling
-# ==============================================================================
 import torch
 import torch.nn as nn
 import torch.nn.init as init
@@ -9,34 +7,33 @@ class CNNLSTMImproved(nn.Module):
     def __init__(self, num_classes: int, pretrained: bool = False, lstm_hidden_size: int = 512, dropout_p: float = 0.5):
         super().__init__()
         
-        # 1. Backbone (pretrained=False pour Track A)
+        # --- BASELINE (Conservé) ---
         weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
         self.backbone = models.resnet18(weights=weights)
         feature_dim = self.backbone.fc.in_features
         self.backbone.fc = nn.Identity()
 
-        # 2. Régularisation et Activation (GELU remplace ReLU)
-        self.dropout = nn.Dropout(p=dropout_p)
-        self.activation = nn.GELU() 
+        # --- NOUVEAU (TRACK A) : Régularisation et Activation ---
+        self.dropout = nn.Dropout(p=dropout_p)           # Empêche d'apprendre par coeur
+        self.activation = nn.GELU()                     # Activation plus performante
 
-        # 3. LSTM
+        # --- BASELINE (Conservé) ---
         self.lstm = nn.LSTM(input_size=feature_dim, hidden_size=lstm_hidden_size, num_layers=1, batch_first=True)
 
-        # 4. Classifieur avec Dropout
+        # --- NOUVEAU (TRACK A) : Classifieur robuste ---
         self.classifier = nn.Sequential(
-            nn.Dropout(p=dropout_p),
+            nn.Dropout(p=dropout_p),                    # Dropout de sortie
             nn.Linear(lstm_hidden_size, num_classes)
         )
 
-        # 5. Application de l'initialisation (Kaiming / Orthogonal)
-        self.apply(self._initialize_weights)
+        # --- NOUVEAU (TRACK A) : Initialisation experte ---
+        self.apply(self._initialize_weights)            # Kaiming / Orthogonal
 
+    # ==========================================================================
+    # === NOUVELLE FONCTION : Initialisation des poids ===
+    # ==========================================================================
     def _initialize_weights(self, m):
-        if isinstance(m, nn.Conv2d):
-            init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            if m.bias is not None:
-                init.constant_(m.bias, 0)
-        elif isinstance(m, nn.Linear):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
             init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             if m.bias is not None:
                 init.constant_(m.bias, 0)
@@ -45,7 +42,7 @@ class CNNLSTMImproved(nn.Module):
                 if 'weight_ih' in name:
                     init.xavier_uniform_(param.data)
                 elif 'weight_hh' in name:
-                    init.orthogonal_(param.data)
+                    init.orthogonal_(param.data) # Crucial pour la mémoire longue
                 elif 'bias' in name:
                     init.constant_(param.data, 0)
 
@@ -53,16 +50,19 @@ class CNNLSTMImproved(nn.Module):
         batch_size, num_frames, channels, height, width = video_batch.shape
         frames = video_batch.reshape(batch_size * num_frames, channels, height, width)
 
-        # Extraction visuelle
+        # --- BASELINE + NOUVEAU (Activation/Dropout) ---
         frame_features = self.backbone(frames)
-        frame_features = self.activation(frame_features) # GELU
-        frame_features = self.dropout(frame_features)    # Dropout
+        frame_features = self.activation(frame_features) 
+        frame_features = self.dropout(frame_features)    
         
-        # Séquence temporelle
         sequence = frame_features.view(batch_size, num_frames, -1)
         lstm_out, _ = self.lstm(sequence)
 
-        # AMÉLIORATION : Mean Pooling temporel au lieu du dernier élément
+        # ==========================================================================
+        # === NOUVEAU (TRACK A) : Mean Pooling au lieu du Last Step ===
+        # Au lieu de regarder seulement la fin de la vidéo, on regarde la moyenne.
+        # C'est beaucoup plus robuste pour des vidéos de 4 images.
+        # ==========================================================================
         pooled_features = lstm_out.mean(dim=1)
 
         return self.classifier(pooled_features)

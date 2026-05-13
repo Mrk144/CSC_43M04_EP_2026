@@ -28,36 +28,15 @@ from dataset.video_dataset import VideoFrameDataset, collect_video_samples
 from models.cnn_baseline import CNNBaseline
 from models.cnn_lstm import CNNLSTM
 from utils import build_transforms, set_seed, split_train_val
-import torch.optim as optim
-# Rôle : Lier le modèle, la Loss, AdamW et le Scheduler Cosine
+
+# ==============================================================================
+# === NOUVEAU CODE (TRACK A) : Nouveaux imports ===
 # ==============================================================================
 import torch.optim as optim
-from losses import FocalLossWithSmoothing
 from models.cnn_lstm_improved import CNNLSTMImproved
+from losses import FocalLossWithSmoothing
+# ==============================================================================
 
-def build_optimizer(model, cfg):
-    name = cfg.training.optimizer.name.lower()
-    lr = cfg.training.optimizer.lr
-    wd = cfg.training.optimizer.weight_decay
-    
-    if name == "adam":
-        return optim.Adam(model.parameters(), lr=lr, weight_decay=wd)
-    elif name == "adamw":
-        return optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
-    elif name == "sgd":
-        return optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=wd)
-    else:
-        raise ValueError(f"Optimizer {name} non supporté")
-
-def build_loss(cfg):
-    name = cfg.training.loss.name.lower()
-    smoothing = cfg.training.loss.label_smoothing
-    
-    if name == "cross_entropy":
-        return nn.CrossEntropyLoss(label_smoothing=smoothing)
-    elif name == "focal_loss":
-        # Utilise la classe FocalLossWithSmoothing définie précédemment
-        return FocalLossWithSmoothing(smoothing=smoothing, gamma=cfg.training.loss.gamma)
 
 def build_model(cfg: DictConfig) -> nn.Module:
     """Create the model described by cfg.model.name."""
@@ -65,6 +44,7 @@ def build_model(cfg: DictConfig) -> nn.Module:
     num_classes = cfg.model.num_classes
     pretrained = cfg.model.pretrained
 
+    # --- ANCIEN CODE ---
     if name == "cnn_baseline":
         return CNNBaseline(num_classes=num_classes, pretrained=pretrained)
     if name == "cnn_lstm":
@@ -74,6 +54,10 @@ def build_model(cfg: DictConfig) -> nn.Module:
             pretrained=pretrained,
             lstm_hidden_size=int(hidden),
         )
+
+    # ==========================================================================
+    # === NOUVEAU CODE (TRACK A) : Ajout du nouveau modèle ===
+    # ==========================================================================
     elif name == "cnn_lstm_improved":
         return CNNLSTMImproved(
             num_classes=num_classes,
@@ -81,6 +65,7 @@ def build_model(cfg: DictConfig) -> nn.Module:
             lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 512)),
             dropout_p=float(cfg.model.get("dropout", 0.5))
         )
+    # ==========================================================================
 
     raise ValueError(f"Unknown model.name: {name}")
 
@@ -212,24 +197,50 @@ def main(cfg: DictConfig) -> None:
     )
 
     model = build_model(cfg).to(device)
-    # Remplacement par Focal Loss
-    loss_fn = FocalLossWithSmoothing(smoothing=0.1, gamma=2.0)
-    # Remplacement par AdamW (meilleure régularisation)
-    optimizer = optim.AdamW(model.parameters(), lr=float(cfg.training.lr), weight_decay=1e-4)
+
+    # ==========================================================================
+    # === NOUVEAU CODE (TRACK A) : Loss et Optimiseur Dynamiques ===
+    # ==========================================================================
+    # Choix de la Fonction de Perte
+    loss_name = cfg.training.get("loss", {}).get("name", "cross_entropy")
+    if loss_name == "focal_loss":
+        smoothing = float(cfg.training.get("loss", {}).get("label_smoothing", 0.1))
+        gamma = float(cfg.training.get("loss", {}).get("gamma", 2.0))
+        loss_fn = FocalLossWithSmoothing(smoothing=smoothing, gamma=gamma)
+    else:
+        loss_fn = nn.CrossEntropyLoss()
+
+    # Choix de l'Optimiseur
+    opt_name = cfg.training.get("optimizer", {}).get("name", "adam")
+    lr = float(cfg.training.lr)
+    wd = float(cfg.training.get("optimizer", {}).get("weight_decay", 0.0))
+    
+    if opt_name == "adamw":
+        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    # Ajout du Scheduler (Gestion de la vitesse d'apprentissage)
+    epochs = int(cfg.training.epochs)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+    # ==========================================================================
+
 
     best_val_accuracy = 0.0
     checkpoint_path = Path(cfg.training.checkpoint_path).resolve()
-
-    # Ajout du Scheduler Cosine pour gérer le Learning Rate
-    epochs = int(cfg.training.epochs)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
 
     for epoch in range(int(cfg.training.epochs)):
         train_loss, train_acc = train_one_epoch(
             model, train_loader, loss_fn, optimizer, device
         )
         val_loss, val_acc = evaluate_epoch(model, val_loader, loss_fn, device)
+
+        # ======================================================================
+        # === NOUVEAU CODE (TRACK A) : Mise à jour du Scheduler ===
+        # ======================================================================
         scheduler.step()
+        # ======================================================================
+
         print(
             f"Epoch {epoch + 1}/{cfg.training.epochs} | "
             f"train loss {train_loss:.4f} acc {train_acc:.4f} | "
@@ -247,7 +258,7 @@ def main(cfg: DictConfig) -> None:
                 "val_accuracy": val_acc,
                 "config": OmegaConf.to_container(cfg, resolve=True),
             }
-            if cfg.model.name == "cnn_lstm":
+            if "lstm" in cfg.model.name:
                 payload["lstm_hidden_size"] = int(
                     cfg.model.get("lstm_hidden_size", 512)
                 )

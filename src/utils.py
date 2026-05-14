@@ -8,6 +8,7 @@ import numpy as np
 import torch
 # Utilisation de la v2 pour la gestion des tenseurs vidéo (T, C, H, W)
 from torchvision.transforms import v2 as transforms
+from torchvision import tv_tensors
 
 def set_seed(seed: int) -> None:
     """Make runs reproducible (as far as CUDA allows)."""
@@ -37,25 +38,20 @@ def build_transforms(
             # === PRÉPARATION VIDÉO ===
             # Reçoit le tenseur (T, C, H, W) venant de video_dataset.py
             # ==================================================================
-            transforms.ToImage(),  
+            transforms.Lambda(lambda x: tv_tensors.Video(x)),
             
             # ==================================================================
             # === AUGMENTATIONS GÉOMÉTRIQUES SÉCURISÉES ===
             # S'appliquent IDENTIQUEMENT aux 4 frames
             # ==================================================================
-            transforms.RandomResizedCrop(size=(image_size, image_size), scale=(0.8, 1.0), antialias=True),
+            transforms.RandomResizedCrop(size=(image_size, image_size), scale=(0.95, 1.0), antialias=True),
             transforms.RandomRotation(degrees=5),
 
             # ==================================================================
             # === AUGMENTATIONS VISUELLES ===
             # Gardent la même intensité sur toute la séquence
             # ==================================================================
-            transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-            transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.2),
-            
-            transforms.RandomApply([
-                transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))
-            ], p=0.2),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
 
             # ==================================================================
             # === CONVERSION ET NORMALISATION ===
@@ -63,9 +59,7 @@ def build_transforms(
             # ==================================================================
             transforms.ToDtype(torch.float32, scale=True), 
             transforms.Normalize(mean=mean, std=std),
-            
-            # Appliqué à la fin pour la régularisation
-            transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), value=0),
+
         ])
     else:
         # --- Validation ---

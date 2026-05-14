@@ -30,12 +30,13 @@ from models.cnn_lstm import CNNLSTM
 from utils import build_transforms, set_seed, split_train_val
 
 # ==============================================================================
-# --- NOUVEAUX IMPORTS (TRACK A) ---
+# === NOUVEAU CODE (TRACK A) : Nouveaux imports ===
 # ==============================================================================
 import torch.optim as optim
 from models.cnn_lstm_improved import CNNLSTMImproved
 from losses import FocalLossWithSmoothing
 from models.tsm_resnet import TSMResNet
+# AJOUT : Pour le chemin Hydra et les warnings AMP
 from hydra.core.hydra_config import HydraConfig
 # ==============================================================================
 
@@ -46,6 +47,7 @@ def build_model(cfg: DictConfig) -> nn.Module:
     num_classes = cfg.model.num_classes
     pretrained = cfg.model.pretrained
 
+    # --- ANCIEN CODE ---
     if name == "cnn_baseline":
         return CNNBaseline(num_classes=num_classes, pretrained=pretrained)
     if name == "cnn_lstm":
@@ -55,6 +57,10 @@ def build_model(cfg: DictConfig) -> nn.Module:
             pretrained=pretrained,
             lstm_hidden_size=int(hidden),
         )
+
+    # ==========================================================================
+    # === NOUVEAU CODE (TRACK A) : Ajout du nouveau modèle ===
+    # ==========================================================================
     elif name == "cnn_lstm_improved":
         return CNNLSTMImproved(
             num_classes=num_classes,
@@ -68,6 +74,8 @@ def build_model(cfg: DictConfig) -> nn.Module:
             num_frames=int(cfg.dataset.num_frames),
             pretrained=pretrained
         )
+    # ==========================================================================
+
     raise ValueError(f"Unknown model.name: {name}")
 
 
@@ -77,10 +85,8 @@ def train_one_epoch(
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
-    # ==========================================================================
-    # === NOUVEAU PARAMÈTRE (AMP) : Le Scaler ===
-    # ==========================================================================
-    scaler: torch.cuda.amp.GradScaler,
+    # AJOUT : Scaler pour l'AMP
+    scaler: torch.amp.GradScaler,
 ) -> Tuple[float, float]:
     """Returns (average loss, top-1 accuracy) on the training set for one epoch."""
     model.train()
@@ -95,22 +101,19 @@ def train_one_epoch(
 
         optimizer.zero_grad()
 
-        # ======================================================================
-        # === NOUVEAU CODE (AMP) : Forward Pass avec Autocast ===
-        # Convertit automatiquement les opérations compatibles en 16-bit
-        # ======================================================================
+        # AJOUT : Utilisation de l'AMP pour accélérer
         with torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
             logits = model(video_batch)  # (B, num_classes)
             loss = loss_fn(logits, labels)
-
-        # ======================================================================
-        # === NOUVEAU CODE (AMP) : Backward Pass avec Scaler ===
-        # Protège les gradients contre l'underflow (devenir trop petits)
-        # ======================================================================
+        
+        # AJOUT : Scale de la loss et step via scaler
         scaler.scale(loss).backward()
+        # Obligatoire pour LSTMs et Transformers pour éviter les NaN losses
+        # ======================================================================
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         scaler.step(optimizer)
         scaler.update()
-        # ======================================================================
 
         running_loss += float(loss.item()) * labels.size(0)
         predictions = logits.argmax(dim=1)
@@ -139,14 +142,10 @@ def evaluate_epoch(
         video_batch = video_batch.to(device)
         labels = labels.to(device)
 
-        # ======================================================================
-        # === NOUVEAU CODE (AMP) : Autocast pour l'Évaluation ===
-        # Accélère l'inférence en mode évaluation
-        # ======================================================================
+        # AJOUT : Autocast en évaluation
         with torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
             logits = model(video_batch)
             loss = loss_fn(logits, labels)
-        # ======================================================================
 
         running_loss += float(loss.item()) * labels.size(0)
         predictions = logits.argmax(dim=1)
@@ -183,6 +182,7 @@ def main(cfg: DictConfig) -> None:
         seed=int(cfg.dataset.seed),
     )
 
+    # Match normalization to pretrained flag (ImageNet stats when using pretrained weights).
     use_imagenet_norm = bool(cfg.model.pretrained)
     train_transform = build_transforms(
         is_training=True, use_imagenet_norm=use_imagenet_norm
@@ -221,7 +221,10 @@ def main(cfg: DictConfig) -> None:
 
     model = build_model(cfg).to(device)
 
-    # --- Initialisation de la Loss ---
+    # ==========================================================================
+    # === NOUVEAU CODE (TRACK A) : Loss et Optimiseur Dynamiques ===
+    # ==========================================================================
+    # Choix de la Fonction de Perte
     loss_name = cfg.training.get("loss", {}).get("name", "cross_entropy")
     if loss_name == "focal_loss":
         smoothing = float(cfg.training.get("loss", {}).get("label_smoothing", 0.1))
@@ -230,7 +233,7 @@ def main(cfg: DictConfig) -> None:
     else:
         loss_fn = nn.CrossEntropyLoss()
 
-    # --- Initialisation de l'Optimiseur ---
+    # Choix de l'Optimiseur
     opt_name = cfg.training.get("optimizer", {}).get("name", "adam")
     lr = float(cfg.training.lr)
     wd = float(cfg.training.get("optimizer", {}).get("weight_decay", 0.0))
@@ -240,39 +243,56 @@ def main(cfg: DictConfig) -> None:
     else:
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
+    # Ajout du Scheduler (Gestion de la vitesse d'apprentissage)
     epochs = int(cfg.training.epochs)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+    # ==========================================================================
 
-    # ==========================================================================
-    # === NOUVEAU CODE (AMP) : Initialisation du GradScaler ===
-    # Ne s'active que si un GPU (cuda) est utilisé
-    # ==========================================================================
+    # AJOUT : Initialisation du Scaler pour AMP
     scaler = torch.amp.GradScaler('cuda', enabled=(device.type == "cuda"))
-    # ==========================================================================
 
+    # ==========================================================================
+    # === NOUVEAU CODE (TRACK A) : Reprise de l'entraînement (Resume) ===
+    # ==========================================================================
+    start_epoch = 0
     best_val_accuracy = 0.0
-    # Récupère le chemin du dossier créé par Hydra (ex: outputs/2026-05-14_16-30-00)
+    resume_path = cfg.training.get("resume_from")
+    
+    if resume_path:
+        resume_path = Path(resume_path).resolve()
+        if resume_path.exists():
+            print(f"🔄 Reprise de l'entraînement depuis : {resume_path}")
+            checkpoint = torch.load(resume_path, map_location=device)
+            model.load_state_dict(checkpoint["model_state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+            start_epoch = checkpoint["epoch"] + 1
+            best_val_accuracy = checkpoint.get("val_accuracy", 0.0)
+            print(f"✅ Repris à l'époque {start_epoch} (Best Val Acc: {best_val_accuracy:.4f})")
+        else:
+            print(f"⚠️ Fichier de reprise introuvable : {resume_path}")
+
+    # ==========================================================================
+    # === NOUVEAU CODE (HYDRA) : Chemin de sauvegarde robuste ===
+    # ==========================================================================
     run_dir = Path(HydraConfig.get().runtime.output_dir)
-    
-    # Prépare le nom du fichier (best_model.pt)
     checkpoint_path = Path(cfg.training.checkpoint_path)
-    
-    # Fusionne les deux : si le chemin n'est pas absolu, on le met dans le dossier de run
     if not checkpoint_path.is_absolute():
         checkpoint_path = run_dir / checkpoint_path
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    # ==========================================================================
 
-    for epoch in range(int(cfg.training.epochs)):
-        # ======================================================================
-        # === NOUVEAU CODE (AMP) : On passe le scaler à train_one_epoch ===
-        # ======================================================================
+    for epoch in range(start_epoch, int(cfg.training.epochs)):
         train_loss, train_acc = train_one_epoch(
             model, train_loader, loss_fn, optimizer, device, scaler
         )
-        # ======================================================================
-        
         val_loss, val_acc = evaluate_epoch(model, val_loader, loss_fn, device)
 
+        # ======================================================================
+        # === NOUVEAU CODE (TRACK A) : Mise à jour du Scheduler ===
+        # ======================================================================
         scheduler.step()
+        # ======================================================================
 
         print(
             f"Epoch {epoch + 1}/{cfg.training.epochs} | "
@@ -284,6 +304,9 @@ def main(cfg: DictConfig) -> None:
             best_val_accuracy = val_acc
             payload: Dict[str, Any] = {
                 "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "epoch": epoch,
                 "model_name": cfg.model.name,
                 "num_classes": int(cfg.model.num_classes),
                 "pretrained": bool(cfg.model.pretrained),

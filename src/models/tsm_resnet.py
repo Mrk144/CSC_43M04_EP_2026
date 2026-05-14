@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-def temporal_shift(x: torch.Tensor, num_frames: int, fold_div: int = 8) -> torch.Tensor:
+def temporal_shift(x: torch.Tensor, num_frames: int, fold_div: int = 4) -> torch.Tensor:
     """
     Applique le Temporal Shift Module (TSM) sur un tenseur de features.
     

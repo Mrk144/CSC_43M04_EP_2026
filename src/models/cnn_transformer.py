@@ -21,45 +21,39 @@ class CNNTransformer(nn.Module):
     def __init__(self, num_classes: int, num_frames: int = 4, pretrained: bool = False, d_model: int = 512, nhead: int = 8):
         super().__init__()
         
-        # 1. Backbone (ResNet18)
+        # Backbone (ResNet18)
         weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
         self.backbone = models.resnet18(weights=weights)
         feature_dim = self.backbone.fc.in_features
         self.backbone.fc = nn.Identity()
 
-        # 2. Projection pour correspondre à la dimension du Transformer
         self.feature_projection = nn.Linear(feature_dim, d_model)
-        self.pos_encoder = PositionalEncoding(d_model, max_len=num_frames)
         
-        # 3. Transformer Encoder
+        # FIX 1: Learned Positional Embedding for exactly 4 frames
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_frames, d_model))
+        
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, 
-            nhead=nhead, 
-            dim_feedforward=1024, 
-            dropout=0.3, 
-            batch_first=True
+            d_model=d_model, nhead=nhead, dim_feedforward=1024, dropout=0.3, batch_first=True
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
 
-        # 4. Classifieur
-        self.classifier = nn.Linear(d_model, num_classes)
+        # FIX 2: The classifier now expects (d_model * num_frames) because we flatten!
+        self.classifier = nn.Linear(d_model * num_frames, num_classes)
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
         batch_size, T, C, H, W = video_batch.shape
         
-        # Extraction des features spatiales
         x = video_batch.view(batch_size * T, C, H, W)
-        features = self.backbone(x) # (B*T, 512)
+        features = self.backbone(x) 
         
-        # Préparation pour le Transformer
-        features = self.feature_projection(features) # (B*T, d_model)
-        features = features.view(batch_size, T, -1) # (B, T, d_model)
+        features = self.feature_projection(features) 
+        features = features.view(batch_size, T, -1) 
         
-        # Ajout du temps (Position) et passage dans le Transformer
-        features = self.pos_encoder(features)
-        features = self.transformer(features) # (B, T, d_model)
+        # Add learned position
+        features = features + self.pos_embed
+        features = self.transformer(features) 
         
-        # Pooling temporel (Moyenne sur les frames)
-        features = features.mean(dim=1)
+        # FIX 3: Flatten instead of mean! Preserves strict temporal order.
+        features = features.flatten(start_dim=1) # Shape: (B, T * d_model)
         
         return self.classifier(features)

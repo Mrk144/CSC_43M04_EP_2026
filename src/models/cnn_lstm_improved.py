@@ -52,17 +52,12 @@ class CNNLSTMImproved(nn.Module):
 
         # --- BASELINE + NOUVEAU (Activation/Dropout) ---
         frame_features = self.backbone(frames)
-        frame_features = self.activation(frame_features) 
-        frame_features = self.dropout(frame_features)    
+        frame_features = self.activation(frame_features)
+        frame_features = self.dropout(frame_features)
         
         sequence = frame_features.view(batch_size, num_frames, -1)
         lstm_out, _ = self.lstm(sequence)
 
-        # ==========================================================================
-        # === NOUVEAU (TRACK A) : Mean Pooling au lieu du Last Step ===
-        # Au lieu de regarder seulement la fin de la vidéo, on regarde la moyenne.
-        # C'est beaucoup plus robuste pour des vidéos de 4 images.
-        # ==========================================================================
-        pooled_features = lstm_out.mean(dim=1)
+        last_hidden = lstm_out[:, -1, :]
 
-        return self.classifier(pooled_features)
+        return self.classifier(last_hidden)

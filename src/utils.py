@@ -30,7 +30,9 @@ def build_transforms(
     """
     Standard torchvision pipeline for single RGB frames.
     """
+    # ==================================================================
     # --- CODE ORIGINAL : Gestion de la normalisation ---
+    # ==================================================================
     if use_imagenet_norm:
         normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -42,25 +44,62 @@ def build_transforms(
     if is_training:
         return transforms.Compose([
             # ==================================================================
-            # === NOUVEAU CODE (TRACK A) : Augmentations Spatiales ===
-            # Ces ajouts créent de la diversité pour éviter le "par cœur"
+            # === AUGMENTATIONS GÉOMÉTRIQUES SÉCURISÉES ===
+            # Protègent les classes 018, 019, 008, 009 (mouvements directionnels)
             # ==================================================================
             
-            # Zoom et recadrage aléatoire (force le modèle à chercher l'objet partout)
-            transforms.RandomResizedCrop(image_size, scale=(0.7, 1.0)),
+            # Zoom et recadrage (original)
+            transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0)),
             
-            # Variation des couleurs (évite que le modèle n'apprenne un éclairage précis)
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-            
-            # NOTE : Pas de Horizontal Flip ici car le sens du mouvement compte !
-            
+            # Micro-rotation (original)
+            transforms.RandomRotation(degrees=5),
+
+            # --- NOUVEAUTÉ 1 : Translation (Random Affine) ---
+            # Déplace l'image sans la retourner. Aide à la robustesse si la main 
+            # n'est pas parfaitement centrée.
+            transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+
+            # --- NOUVEAUTÉ 2 : Perspective légère ---
+            # Simule un changement d'angle de la caméra par rapport à la table.
+            transforms.RandomPerspective(distortion_scale=0.2, p=0.4),
+
+            # ==================================================================
+            # === AUGMENTATIONS VISUELLES ET DE QUALITÉ ===
+            # Simulent des variations d'éclairage et de capteur
             # ==================================================================
             
+            # Modification des couleurs (original)
+            transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+
+            # --- NOUVEAUTÉ 3 : Netteté (Sharpness) ---
+            # Rend l'image plus ou moins "piquée" pour simuler différentes caméras.
+            transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.3),
+            
+            # Flou gaussien (original)
+            transforms.RandomApply([
+                transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))
+            ], p=0.3),
+
+            # --- NOUVEAUTÉ 4 : Posterisation ---
+            # Réduit la palette de couleurs. Force le modèle à voir les formes 
+            # globales plutôt que les textures fines.
+            transforms.RandomApply([
+                transforms.RandomPosterize(bits=4)
+            ], p=0.2),
+
+            # ==================================================================
+            # --- CONVERSION ET RÉGULARISATION FINALE ---
+            # ==================================================================
             transforms.ToTensor(),
             normalize,
+            
+            # Effacement aléatoire (original)
+            transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), ratio=(0.3, 3.3), value=0),
         ])
     else:
-        # --- CODE ORIGINAL : Validation (Redimensionnement simple) ---
+        # ==================================================================
+        # --- CODE ORIGINAL : Validation ---
+        # ==================================================================
         return transforms.Compose([
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),

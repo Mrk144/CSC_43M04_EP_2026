@@ -1,11 +1,11 @@
 # @package _global_
 defaults:
-  - override /model: cnn_lstm_improved  # On change le modèle ici
+  - override /model: tsm_resnet  # On change le modèle ici
 
 training:
   batch_size: 64         # On augmente pour la stabilité
   lr: 0.0005             # LR plus fin
-  epochs: 25             # Équilibre anti-overfit
+  epochs: 30             # Équilibre anti-overfit
   num_workers: 12
   
   optimizer:

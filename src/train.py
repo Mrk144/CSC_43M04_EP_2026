@@ -35,6 +35,7 @@ from utils import build_transforms, set_seed, split_train_val
 import torch.optim as optim
 from models.cnn_lstm_improved import CNNLSTMImproved
 from losses import FocalLossWithSmoothing
+from models.tsm_resnet import TSMResNet
 # ==============================================================================
 
 
@@ -64,6 +65,12 @@ def build_model(cfg: DictConfig) -> nn.Module:
             pretrained=pretrained,
             lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 512)),
             dropout_p=float(cfg.model.get("dropout", 0.5))
+        )
+    elif name == "tsm_resnet":
+        return TSMResNet(
+            num_classes=num_classes,
+            num_frames=int(cfg.dataset.num_frames),
+            pretrained=pretrained
         )
     # ==========================================================================
 
@@ -227,7 +234,7 @@ def main(cfg: DictConfig) -> None:
 
 
     best_val_accuracy = 0.0
-    checkpoint_path = Path(cfg.training.checkpoint_path).resolve()
+    checkpoint_path = Path(cfg.training.checkpoint_path)
 
     for epoch in range(int(cfg.training.epochs)):
         train_loss, train_acc = train_one_epoch(

@@ -1,7 +1,3 @@
-"""
-Small helpers: reproducibility, image transforms, and metric computation.
-"""
-
 from __future__ import annotations
 
 import random
@@ -10,8 +6,8 @@ from typing import List, Tuple
 
 import numpy as np
 import torch
-import torchvision.transforms as transforms
-
+# Utilisation de la v2 pour la gestion des tenseurs vidéo (T, C, H, W)
+from torchvision.transforms import v2 as transforms
 
 def set_seed(seed: int) -> None:
     """Make runs reproducible (as far as CUDA allows)."""
@@ -21,87 +17,64 @@ def set_seed(seed: int) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-
 def build_transforms(
     image_size: int = 224,
     is_training: bool = True,
     use_imagenet_norm: bool = True,
 ) -> transforms.Compose:
     """
-    Standard torchvision pipeline for single RGB frames.
+    Pipeline torchvision v2 pour garantir la cohérence temporelle sur 4 frames.
     """
-    # ==================================================================
-    # --- CODE ORIGINAL : Gestion de la normalisation ---
-    # ==================================================================
+    # --- Gestion de la normalisation ---
     if use_imagenet_norm:
-        normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        )
+        mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
     else:
-        normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        mean, std = [0.5, 0.5, 0.5], [0.5, 0.5, 0.5]
 
     if is_training:
         return transforms.Compose([
             # ==================================================================
-            # === AUGMENTATIONS GÉOMÉTRIQUES SÉCURISÉES ===
-            # Protègent les classes 018, 019, 008, 009 (mouvements directionnels)
+            # === PRÉPARATION VIDÉO ===
+            # Reçoit le tenseur (T, C, H, W) venant de video_dataset.py
             # ==================================================================
+            transforms.ToImage(),  
             
-            # Zoom et recadrage (original)
-            transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0)),
-            
-            # Micro-rotation (original)
+            # ==================================================================
+            # === AUGMENTATIONS GÉOMÉTRIQUES SÉCURISÉES ===
+            # S'appliquent IDENTIQUEMENT aux 4 frames
+            # ==================================================================
+            transforms.RandomResizedCrop(size=(image_size, image_size), scale=(0.8, 1.0), antialias=True),
             transforms.RandomRotation(degrees=5),
 
-            # --- NOUVEAUTÉ 1 : Translation (Random Affine) ---
-            # Déplace l'image sans la retourner. Aide à la robustesse si la main 
-            # n'est pas parfaitement centrée.
-            #transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
-
-            # --- NOUVEAUTÉ 2 : Perspective légère ---
-            # Simule un changement d'angle de la caméra par rapport à la table.
-            #transforms.RandomPerspective(distortion_scale=0.2, p=0.4),
-
             # ==================================================================
-            # === AUGMENTATIONS VISUELLES ET DE QUALITÉ ===
-            # Simulent des variations d'éclairage et de capteur
+            # === AUGMENTATIONS VISUELLES ===
+            # Gardent la même intensité sur toute la séquence
             # ==================================================================
-            
-            # Modification des couleurs (original)
             transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
-
-            # --- NOUVEAUTÉ 3 : Netteté (Sharpness) ---
-            # Rend l'image plus ou moins "piquée" pour simuler différentes caméras.
             transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.2),
             
-            # Flou gaussien (original)
             transforms.RandomApply([
                 transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))
             ], p=0.2),
 
-            # --- NOUVEAUTÉ 4 : Posterisation ---
-            # Réduit la palette de couleurs. Force le modèle à voir les formes 
-            # globales plutôt que les textures fines.
-            #transforms.RandomApply([
-            #    transforms.RandomPosterize(bits=4)], p=0.2),
-
             # ==================================================================
-            # --- CONVERSION ET RÉGULARISATION FINALE ---
+            # === CONVERSION ET NORMALISATION ===
+            # Obligatoire : ToDtype remplace ToTensor pour les tenseurs
             # ==================================================================
-            transforms.ToTensor(),
-            normalize,
+            transforms.ToDtype(torch.float32, scale=True), 
+            transforms.Normalize(mean=mean, std=std),
+            
+            # Appliqué à la fin pour la régularisation
+            transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), value=0),
         ])
     else:
-        # ==================================================================
-        # --- CODE ORIGINAL : Validation ---
-        # ==================================================================
+        # --- Validation ---
         return transforms.Compose([
-            transforms.Resize((image_size, image_size)),
-            transforms.ToTensor(),
-            normalize,
+            transforms.ToImage(),
+            transforms.Resize((image_size, image_size), antialias=True),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.Normalize(mean=mean, std=std),
         ])
-
 
 @torch.no_grad()
 def accuracy_topk(
@@ -109,10 +82,6 @@ def accuracy_topk(
     targets: torch.Tensor,
     topk: Tuple[int, ...] = (1, 5),
 ) -> Tuple[torch.Tensor, ...]:
-    """
-    Compute top-k correctness for each k in topk.
-    """
-    # --- CODE ORIGINAL : Calcul des métriques ---
     max_k = max(topk)
     batch_size = targets.size(0)
 
@@ -125,16 +94,11 @@ def accuracy_topk(
         accuracies.append(correct[:k].reshape(-1).float().sum() / batch_size)
     return tuple(accuracies)
 
-
 def split_train_val(
     samples: List[Tuple[Path, int]],
     val_ratio: float,
     seed: int,
 ) -> Tuple[List[Tuple[Path, int]], List[Tuple[Path, int]]]:
-    """
-    Shuffle then split a list into train and validation portions.
-    """
-    # --- CODE ORIGINAL : Séparation Train / Val ---
     rng = random.Random(seed)
     shuffled = list(samples)
     rng.shuffle(shuffled)

@@ -28,6 +28,11 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+# ==============================================================================
+# NOUVEAU : Import pour convertir l'image PIL en tenseur brut avant le transform
+# ==============================================================================
+import torchvision.transforms.functional as TF
+
 
 def _list_frame_paths(video_dir: Path) -> List[Path]:
     """All image files in a video folder, sorted by name."""
@@ -105,14 +110,14 @@ class VideoFrameDataset(Dataset):
         self,
         root_dir: str | Path,
         num_frames: int,
-        transform: Callable[[Image.Image], torch.Tensor],
+        transform: Callable[[torch.Tensor], torch.Tensor], # Mis à jour pour refléter le tenseur en entrée
         sample_list: Optional[List[Tuple[Path, int]]] = None,
     ) -> None:
         """
         Args:
             root_dir: Split root (contains class folders).
             num_frames: T in the returned tensor (T, C, H, W).
-            transform: Applied independently to each PIL image (typically Resize + ToTensor + Normalize).
+            transform: Applied to the ENTIRE VIDEO TENSOR (T, C, H, W).
             sample_list: Optional pre-built list of (video_dir, label). Use for train/val splits.
         """
         self.root_dir = Path(root_dir)
@@ -132,16 +137,29 @@ class VideoFrameDataset(Dataset):
         frame_paths = _list_frame_paths(video_dir)
         indices = _pick_frame_indices(len(frame_paths), self.num_frames)
 
-        frames: List[torch.Tensor] = []
+        # ======================================================================
+        # === NOUVEAU CODE : Empilement avant la transformation ===
+        # ======================================================================
+        raw_frames: List[torch.Tensor] = []
+        
+        # 1. On charge les images et on les convertit directement en tenseurs bruts
         for frame_index in indices:
             path = frame_paths[frame_index]
             with Image.open(path) as image:
                 rgb_image = image.convert("RGB")
-            # transform: PIL -> (C, H, W)
-            tensor_chw = self.transform(rgb_image)
-            frames.append(tensor_chw)
+                # TF.pil_to_tensor crée un tenseur (C, H, W) de type uint8 (valeurs de 0 à 255)
+                # Cela remplace la conversion implicite qui se faisait dans la v1
+                tensor_chw = TF.pil_to_tensor(rgb_image)
+                raw_frames.append(tensor_chw)
 
-        # Stack time dimension: (T, C, H, W)
-        video_tensor = torch.stack(frames, dim=0)
+        # 2. On empile la dimension temporelle : (T, C, H, W)
+        video_tensor = torch.stack(raw_frames, dim=0)
+
+        # 3. On applique la transformation sur l'ensemble de la vidéo d'un coup
+        # Les modules v2 vont automatiquement traiter la dimension T proprement
+        if self.transform is not None:
+            video_tensor = self.transform(video_tensor)
+        # ======================================================================
+
         label_tensor = torch.tensor(label, dtype=torch.long)
         return video_tensor, label_tensor

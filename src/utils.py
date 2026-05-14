@@ -57,11 +57,11 @@ def build_transforms(
             # --- NOUVEAUTÉ 1 : Translation (Random Affine) ---
             # Déplace l'image sans la retourner. Aide à la robustesse si la main 
             # n'est pas parfaitement centrée.
-            transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
+            #transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
 
             # --- NOUVEAUTÉ 2 : Perspective légère ---
             # Simule un changement d'angle de la caméra par rapport à la table.
-            transforms.RandomPerspective(distortion_scale=0.2, p=0.4),
+            #transforms.RandomPerspective(distortion_scale=0.2, p=0.4),
 
             # ==================================================================
             # === AUGMENTATIONS VISUELLES ET DE QUALITÉ ===
@@ -73,28 +73,24 @@ def build_transforms(
 
             # --- NOUVEAUTÉ 3 : Netteté (Sharpness) ---
             # Rend l'image plus ou moins "piquée" pour simuler différentes caméras.
-            transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.3),
+            transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.2),
             
             # Flou gaussien (original)
             transforms.RandomApply([
                 transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))
-            ], p=0.3),
+            ], p=0.2),
 
             # --- NOUVEAUTÉ 4 : Posterisation ---
             # Réduit la palette de couleurs. Force le modèle à voir les formes 
             # globales plutôt que les textures fines.
-            transforms.RandomApply([
-                transforms.RandomPosterize(bits=4)
-            ], p=0.2),
+            #transforms.RandomApply([
+            #    transforms.RandomPosterize(bits=4)], p=0.2),
 
             # ==================================================================
             # --- CONVERSION ET RÉGULARISATION FINALE ---
             # ==================================================================
             transforms.ToTensor(),
             normalize,
-            
-            # Effacement aléatoire (original)
-            transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), ratio=(0.3, 3.3), value=0),
         ])
     else:
         # ==================================================================

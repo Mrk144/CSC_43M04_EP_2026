@@ -30,12 +30,13 @@ from models.cnn_lstm import CNNLSTM
 from utils import build_transforms, set_seed, split_train_val
 
 # ==============================================================================
-# === NOUVEAU CODE (TRACK A) : Nouveaux imports ===
+# --- NOUVEAUX IMPORTS (TRACK A) ---
 # ==============================================================================
 import torch.optim as optim
 from models.cnn_lstm_improved import CNNLSTMImproved
 from losses import FocalLossWithSmoothing
 from models.tsm_resnet import TSMResNet
+from hydra.core.hydra_config import HydraConfig
 # ==============================================================================
 
 
@@ -45,7 +46,6 @@ def build_model(cfg: DictConfig) -> nn.Module:
     num_classes = cfg.model.num_classes
     pretrained = cfg.model.pretrained
 
-    # --- ANCIEN CODE ---
     if name == "cnn_baseline":
         return CNNBaseline(num_classes=num_classes, pretrained=pretrained)
     if name == "cnn_lstm":
@@ -55,10 +55,6 @@ def build_model(cfg: DictConfig) -> nn.Module:
             pretrained=pretrained,
             lstm_hidden_size=int(hidden),
         )
-
-    # ==========================================================================
-    # === NOUVEAU CODE (TRACK A) : Ajout du nouveau modèle ===
-    # ==========================================================================
     elif name == "cnn_lstm_improved":
         return CNNLSTMImproved(
             num_classes=num_classes,
@@ -72,8 +68,6 @@ def build_model(cfg: DictConfig) -> nn.Module:
             num_frames=int(cfg.dataset.num_frames),
             pretrained=pretrained
         )
-    # ==========================================================================
-
     raise ValueError(f"Unknown model.name: {name}")
 
 
@@ -83,6 +77,10 @@ def train_one_epoch(
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
+    # ==========================================================================
+    # === NOUVEAU PARAMÈTRE (AMP) : Le Scaler ===
+    # ==========================================================================
+    scaler: torch.cuda.amp.GradScaler,
 ) -> Tuple[float, float]:
     """Returns (average loss, top-1 accuracy) on the training set for one epoch."""
     model.train()
@@ -96,10 +94,23 @@ def train_one_epoch(
         labels = labels.to(device)
 
         optimizer.zero_grad()
-        logits = model(video_batch)  # (B, num_classes)
-        loss = loss_fn(logits, labels)
-        loss.backward()
-        optimizer.step()
+
+        # ======================================================================
+        # === NOUVEAU CODE (AMP) : Forward Pass avec Autocast ===
+        # Convertit automatiquement les opérations compatibles en 16-bit
+        # ======================================================================
+        with torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
+            logits = model(video_batch)  # (B, num_classes)
+            loss = loss_fn(logits, labels)
+
+        # ======================================================================
+        # === NOUVEAU CODE (AMP) : Backward Pass avec Scaler ===
+        # Protège les gradients contre l'underflow (devenir trop petits)
+        # ======================================================================
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        # ======================================================================
 
         running_loss += float(loss.item()) * labels.size(0)
         predictions = logits.argmax(dim=1)
@@ -128,8 +139,14 @@ def evaluate_epoch(
         video_batch = video_batch.to(device)
         labels = labels.to(device)
 
-        logits = model(video_batch)
-        loss = loss_fn(logits, labels)
+        # ======================================================================
+        # === NOUVEAU CODE (AMP) : Autocast pour l'Évaluation ===
+        # Accélère l'inférence en mode évaluation
+        # ======================================================================
+        with torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
+            logits = model(video_batch)
+            loss = loss_fn(logits, labels)
+        # ======================================================================
 
         running_loss += float(loss.item()) * labels.size(0)
         predictions = logits.argmax(dim=1)
@@ -166,7 +183,6 @@ def main(cfg: DictConfig) -> None:
         seed=int(cfg.dataset.seed),
     )
 
-    # Match normalization to pretrained flag (ImageNet stats when using pretrained weights).
     use_imagenet_norm = bool(cfg.model.pretrained)
     train_transform = build_transforms(
         is_training=True, use_imagenet_norm=use_imagenet_norm
@@ -205,10 +221,7 @@ def main(cfg: DictConfig) -> None:
 
     model = build_model(cfg).to(device)
 
-    # ==========================================================================
-    # === NOUVEAU CODE (TRACK A) : Loss et Optimiseur Dynamiques ===
-    # ==========================================================================
-    # Choix de la Fonction de Perte
+    # --- Initialisation de la Loss ---
     loss_name = cfg.training.get("loss", {}).get("name", "cross_entropy")
     if loss_name == "focal_loss":
         smoothing = float(cfg.training.get("loss", {}).get("label_smoothing", 0.1))
@@ -217,7 +230,7 @@ def main(cfg: DictConfig) -> None:
     else:
         loss_fn = nn.CrossEntropyLoss()
 
-    # Choix de l'Optimiseur
+    # --- Initialisation de l'Optimiseur ---
     opt_name = cfg.training.get("optimizer", {}).get("name", "adam")
     lr = float(cfg.training.lr)
     wd = float(cfg.training.get("optimizer", {}).get("weight_decay", 0.0))
@@ -227,26 +240,39 @@ def main(cfg: DictConfig) -> None:
     else:
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # Ajout du Scheduler (Gestion de la vitesse d'apprentissage)
     epochs = int(cfg.training.epochs)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+
+    # ==========================================================================
+    # === NOUVEAU CODE (AMP) : Initialisation du GradScaler ===
+    # Ne s'active que si un GPU (cuda) est utilisé
+    # ==========================================================================
+    scaler = torch.amp.GradScaler('cuda', enabled=(device.type == "cuda"))
     # ==========================================================================
 
-
     best_val_accuracy = 0.0
+    # Récupère le chemin du dossier créé par Hydra (ex: outputs/2026-05-14_16-30-00)
+    run_dir = Path(HydraConfig.get().runtime.output_dir)
+    
+    # Prépare le nom du fichier (best_model.pt)
     checkpoint_path = Path(cfg.training.checkpoint_path)
+    
+    # Fusionne les deux : si le chemin n'est pas absolu, on le met dans le dossier de run
+    if not checkpoint_path.is_absolute():
+        checkpoint_path = run_dir / checkpoint_path
 
     for epoch in range(int(cfg.training.epochs)):
+        # ======================================================================
+        # === NOUVEAU CODE (AMP) : On passe le scaler à train_one_epoch ===
+        # ======================================================================
         train_loss, train_acc = train_one_epoch(
-            model, train_loader, loss_fn, optimizer, device
+            model, train_loader, loss_fn, optimizer, device, scaler
         )
+        # ======================================================================
+        
         val_loss, val_acc = evaluate_epoch(model, val_loader, loss_fn, device)
 
-        # ======================================================================
-        # === NOUVEAU CODE (TRACK A) : Mise à jour du Scheduler ===
-        # ======================================================================
         scheduler.step()
-        # ======================================================================
 
         print(
             f"Epoch {epoch + 1}/{cfg.training.epochs} | "

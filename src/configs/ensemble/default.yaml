@@ -1,0 +1,20 @@
+# @package _global_
+# Soft-voting ensemble configuration.
+# Build val.npz / test.npz beforehand by running predict_softmax.py on each
+# trained checkpoint, then list them below.
+#
+# method:
+#   - mean_softmax        : plain arithmetic mean.
+#   - weighted_softmax    : pondered by 'weights' (list) or "auto" (val accs).
+#   - temperature_then_mean : per-model temperature calibration + plain mean.
+ensemble:
+  method: weighted_softmax
+  weights: auto
+  output_csv: ${hydra:runtime.cwd}/submission_ensemble.csv
+  models:
+    - name: tsm_resnet
+      val_npz: ${hydra:runtime.cwd}/outputs/REPLACE_ME_tsm/preds/val.npz
+      test_npz: ${hydra:runtime.cwd}/outputs/REPLACE_ME_tsm/preds/test.npz
+    - name: videomae_ssv2
+      val_npz: ${hydra:runtime.cwd}/outputs/REPLACE_ME_videomae/preds/val.npz
+      test_npz: ${hydra:runtime.cwd}/outputs/REPLACE_ME_videomae/preds/test.npz

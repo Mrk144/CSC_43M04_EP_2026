@@ -35,6 +35,7 @@ from models.cnn_lstm_improved import CNNLSTMImproved
 from models.pretrained_video import PretrainedVideoModel
 from models.tsm_resnet import TSMResNet
 from models.tsm_two_stream import TSMTwoStream
+from models.videomae import VideoMAEClassifier
 from utils import build_transforms, set_seed, split_train_val
 
 
@@ -76,6 +77,13 @@ def build_model(cfg: DictConfig) -> nn.Module:
     if name == "pretrained_video":
         return PretrainedVideoModel(
             backbone=str(cfg.model.backbone),
+            num_classes=num_classes,
+            pretrained=pretrained,
+            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
+        )
+    if name == "videomae":
+        return VideoMAEClassifier(
+            variant=str(cfg.model.get("variant", "MCG-NJU/videomae-base-finetuned-ssv2")),
             num_classes=num_classes,
             pretrained=pretrained,
             freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
@@ -306,21 +314,29 @@ def main(cfg: DictConfig) -> None:
     start_epoch = 0
     best_val_accuracy = 0.0
     resume_path = cfg.training.get("resume_from")
+    resume_model_only = bool(cfg.training.get("resume_model_only", False))
 
     if resume_path:
         resume_path = Path(resume_path).resolve()
         if resume_path.exists():
-            print(f"Resuming training from: {resume_path}")
+            mode = "model only" if resume_model_only else "full state"
+            print(f"Resuming training from ({mode}): {resume_path}")
             checkpoint = torch.load(resume_path, map_location=device)
-            model.load_state_dict(checkpoint["model_state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-            start_epoch = checkpoint["epoch"] + 1
-            best_val_accuracy = checkpoint.get("val_accuracy", 0.0)
-            print(
-                f"Resumed at epoch {start_epoch} "
-                f"(best val acc so far: {best_val_accuracy:.4f})"
-            )
+            model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            if not resume_model_only:
+                optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+                start_epoch = checkpoint["epoch"] + 1
+                best_val_accuracy = checkpoint.get("val_accuracy", 0.0)
+                print(
+                    f"Resumed at epoch {start_epoch} "
+                    f"(best val acc so far: {best_val_accuracy:.4f})"
+                )
+            else:
+                print(
+                    "Loaded model weights only. Optimizer/scheduler/epoch "
+                    "reset for a fresh phase."
+                )
         else:
             print(f"Resume checkpoint not found: {resume_path}")
 

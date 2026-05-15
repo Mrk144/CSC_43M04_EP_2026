@@ -1,0 +1,29 @@
+# @package _global_
+# Phase 2: full backbone finetune with a small lr, resuming the model weights
+# trained in phase 1 (head only). Pass the phase-1 checkpoint via:
+#   training.resume_from=/abs/path/to/phase1/best_model.pt
+defaults:
+  - override /model: videomae
+
+model:
+  freeze_backbone: false
+
+dataset:
+  num_frames: 16
+
+training:
+  batch_size: 8
+  lr: 2e-5
+  epochs: 10
+  warmup_epochs: 1
+  num_workers: 12
+
+  resume_model_only: true
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

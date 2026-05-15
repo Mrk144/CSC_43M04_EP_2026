@@ -11,6 +11,9 @@ dependencies = [
     "hydra-core>=1.3.0",
     "omegaconf>=2.3.0",
     "pillow>=10.0.0",
+    "numpy>=1.24",
+    # For HuggingFace foundation models (VideoMAE, V-JEPA2, InternVideo, ...).
+    "transformers>=4.40",
 ]
 
 [tool.uv]

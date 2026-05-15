@@ -1,0 +1,12 @@
+# @package _global_
+# VideoMAE ViT-B from HuggingFace (Track B / open world).
+# Variants:
+#   - MCG-NJU/videomae-base-finetuned-ssv2 (recommended, closest to this task)
+#   - MCG-NJU/videomae-base-finetuned-kinetics
+#   - MCG-NJU/videomae-large-finetuned-kinetics (heavy)
+model:
+  name: videomae
+  variant: MCG-NJU/videomae-base-finetuned-ssv2
+  pretrained: true
+  num_classes: ${num_classes}
+  freeze_backbone: false

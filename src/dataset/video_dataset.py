@@ -1,18 +1,25 @@
 """
 VideoFrameDataset: loads a fixed number of RGB frames per video folder.
 
+When ``num_frames`` exceeds the number of available frames on disk, missing
+slots are synthesized by **linear interpolation** between consecutive real
+frames. With 4 real frames and ``num_frames=16``, the served positions are
+``linspace(0, 3, 16)``::
+
+    [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8,
+     2.0, 2.2, 2.4, 2.6, 2.8, 3.0]
+
+Integer positions return the original frame. Fractional position ``i + alpha``
+returns ``(1 - alpha) * frame_i + alpha * frame_{i+1}``.
+
 Expected layout under root_dir::
 
     root_dir/
       000_SomeClassName/
         video_12345/
           frame_000.jpg
-          frame_001.jpg
           ...
-      001_AnotherClass/
-        ...
 
-Class index is parsed from the leading number in the class folder name (000, 001, ...).
 Each __getitem__ returns:
     video_tensor: float tensor of shape (T, C, H, W)
     label: int64 scalar class index
@@ -20,18 +27,15 @@ Each __getitem__ returns:
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import torch
+import torchvision.transforms.functional as TF
 from PIL import Image
 from torch.utils.data import Dataset
-
-# ==============================================================================
-# NOUVEAU : Import pour convertir l'image PIL en tenseur brut avant le transform
-# ==============================================================================
-import torchvision.transforms.functional as TF
 
 
 def _list_frame_paths(video_dir: Path) -> List[Path]:
@@ -43,9 +47,7 @@ def _list_frame_paths(video_dir: Path) -> List[Path]:
 
 
 def _parse_class_index(class_dir_name: str) -> Optional[int]:
-    """
-    Expect folder names like '017_Class_name'. Returns 17, or None if no prefix.
-    """
+    """Expect folder names like '017_Class_name'. Returns 17, or None if no prefix."""
     match = re.match(r"^(\d+)_", class_dir_name)
     if match is None:
         return None
@@ -53,8 +55,7 @@ def _parse_class_index(class_dir_name: str) -> Optional[int]:
 
 
 def collect_video_samples(root_dir: Path) -> List[Tuple[Path, int]]:
-    """
-    Walk root_dir: each class folder contains video subfolders with frames.
+    """Walk root_dir: each class folder contains video subfolders with frames.
 
     Returns list of (video_folder_path, class_index).
     """
@@ -65,7 +66,6 @@ def collect_video_samples(root_dir: Path) -> List[Tuple[Path, int]]:
     samples: List[Tuple[Path, int]] = []
     class_dirs = [p for p in sorted(root_dir.iterdir()) if p.is_dir()]
 
-    # If folders lack numeric prefix, assign indices by sorted order (0..C-1).
     fallback_index = {p.name: i for i, p in enumerate(class_dirs)}
 
     for class_dir in class_dirs:
@@ -86,10 +86,12 @@ def collect_video_samples(root_dir: Path) -> List[Tuple[Path, int]]:
     return samples
 
 
-def _pick_frame_indices(num_available: int, num_frames: int) -> List[int]:
-    """
-    Evenly spaced indices in [0, num_available - 1], inclusive.
-    If fewer frames than requested, indices may repeat (last frame duplicated).
+def _pick_frame_positions(num_available: int, num_frames: int) -> List[float]:
+    """Float positions in [0, num_available - 1].
+
+    Integer values map to real frames; fractional values trigger linear
+    blending between the two nearest real frames. Equivalent to TSN-style
+    even sampling, generalized to arbitrary ``num_frames``.
     """
     if num_available <= 0:
         raise ValueError("Video has no frames.")
@@ -97,12 +99,46 @@ def _pick_frame_indices(num_available: int, num_frames: int) -> List[int]:
         raise ValueError("num_frames must be positive.")
 
     if num_available == 1:
-        return [0] * num_frames
+        return [0.0] * num_frames
 
-    # linspace in index space
-    positions = torch.linspace(0, num_available - 1, steps=num_frames)
-    indices = [int(round(float(x))) for x in positions]
-    return indices
+    positions = torch.linspace(0.0, num_available - 1, steps=num_frames)
+    return [float(x) for x in positions]
+
+
+def _load_frame_uint8(path: Path) -> torch.Tensor:
+    """Load an RGB image as a uint8 (C, H, W) tensor."""
+    with Image.open(path) as image:
+        rgb_image = image.convert("RGB")
+        return TF.pil_to_tensor(rgb_image)
+
+
+def _load_frame_at_position(
+    frame_paths: List[Path],
+    pos: float,
+    cache: dict,
+) -> torch.Tensor:
+    """Return a (C, H, W) uint8 tensor at fractional position ``pos``.
+
+    Integer position -> exact frame. Fractional position -> linear blend of
+    the two nearest frames. ``cache`` memoizes the integer frame reads within
+    a single clip so we don't re-decode the same JPEG several times.
+    """
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    lo = max(0, min(lo, len(frame_paths) - 1))
+    hi = max(0, min(hi, len(frame_paths) - 1))
+
+    if lo not in cache:
+        cache[lo] = _load_frame_uint8(frame_paths[lo])
+    if lo == hi:
+        return cache[lo]
+
+    if hi not in cache:
+        cache[hi] = _load_frame_uint8(frame_paths[hi])
+
+    alpha = pos - lo
+    blended = (1.0 - alpha) * cache[lo].to(torch.float32) + alpha * cache[hi].to(torch.float32)
+    return blended.clamp_(0.0, 255.0).to(torch.uint8)
 
 
 class VideoFrameDataset(Dataset):
@@ -110,15 +146,16 @@ class VideoFrameDataset(Dataset):
         self,
         root_dir: str | Path,
         num_frames: int,
-        transform: Callable[[torch.Tensor], torch.Tensor], # Mis à jour pour refléter le tenseur en entrée
+        transform: Callable[[torch.Tensor], torch.Tensor],
         sample_list: Optional[List[Tuple[Path, int]]] = None,
     ) -> None:
         """
         Args:
             root_dir: Split root (contains class folders).
-            num_frames: T in the returned tensor (T, C, H, W).
-            transform: Applied to the ENTIRE VIDEO TENSOR (T, C, H, W).
-            sample_list: Optional pre-built list of (video_dir, label). Use for train/val splits.
+            num_frames: T in the returned tensor (T, C, H, W). May exceed the
+                number of frames on disk; missing slots are interpolated.
+            transform: Applied to the entire video tensor (T, C, H, W).
+            sample_list: Optional pre-built list of (video_dir, label).
         """
         self.root_dir = Path(root_dir)
         self.num_frames = num_frames
@@ -135,31 +172,16 @@ class VideoFrameDataset(Dataset):
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         video_dir, label = self.samples[index]
         frame_paths = _list_frame_paths(video_dir)
-        indices = _pick_frame_indices(len(frame_paths), self.num_frames)
+        positions = _pick_frame_positions(len(frame_paths), self.num_frames)
 
-        # ======================================================================
-        # === NOUVEAU CODE : Empilement avant la transformation ===
-        # ======================================================================
-        raw_frames: List[torch.Tensor] = []
-        
-        # 1. On charge les images et on les convertit directement en tenseurs bruts
-        for frame_index in indices:
-            path = frame_paths[frame_index]
-            with Image.open(path) as image:
-                rgb_image = image.convert("RGB")
-                # TF.pil_to_tensor crée un tenseur (C, H, W) de type uint8 (valeurs de 0 à 255)
-                # Cela remplace la conversion implicite qui se faisait dans la v1
-                tensor_chw = TF.pil_to_tensor(rgb_image)
-                raw_frames.append(tensor_chw)
+        cache: dict = {}
+        tensors: List[torch.Tensor] = [
+            _load_frame_at_position(frame_paths, pos, cache) for pos in positions
+        ]
+        video_tensor = torch.stack(tensors, dim=0)
 
-        # 2. On empile la dimension temporelle : (T, C, H, W)
-        video_tensor = torch.stack(raw_frames, dim=0)
-
-        # 3. On applique la transformation sur l'ensemble de la vidéo d'un coup
-        # Les modules v2 vont automatiquement traiter la dimension T proprement
         if self.transform is not None:
             video_tensor = self.transform(video_tensor)
-        # ======================================================================
 
         label_tensor = torch.tensor(label, dtype=torch.long)
         return video_tensor, label_tensor

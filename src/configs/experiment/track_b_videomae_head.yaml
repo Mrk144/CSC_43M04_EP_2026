@@ -1,0 +1,26 @@
+# @package _global_
+# Phase 1: linear probing (head only) on VideoMAE SSv2-pretrained backbone.
+# The dataset serves T=16 frames interpolated from the 4 frames on disk.
+defaults:
+  - override /model: videomae
+
+model:
+  freeze_backbone: true
+
+dataset:
+  num_frames: 16
+
+training:
+  batch_size: 8
+  lr: 1e-3
+  epochs: 5
+  warmup_epochs: 1
+  num_workers: 12
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

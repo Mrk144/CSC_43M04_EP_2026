@@ -1,108 +1,134 @@
+"""
+Temporal Shift Module on top of a ResNet18.
+
+This implementation follows the original TSM paper:
+- The shift is applied **inside the residual branch** of each BasicBlock (on the
+  input of ``conv1``), never on the identity skip-connection. The skip path
+  preserves the un-shifted features, which is what makes TSM ``residual``.
+- For each BasicBlock, only a small fraction (``1/fold_div``) of the channels
+  is shifted forward (toward the past) and another fraction backward (toward
+  the future). The rest of the channels is left untouched.
+"""
+
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 from torchvision import models
 
-def temporal_shift(x: torch.Tensor, num_frames: int, fold_div: int = 4) -> torch.Tensor:
-    """
-    Applique le Temporal Shift Module (TSM) sur un tenseur de features.
-    
+
+def temporal_shift(x: torch.Tensor, num_frames: int, fold_div: int = 8) -> torch.Tensor:
+    """Shift a fraction of channels along the temporal axis.
+
     Args:
-        x: Tenseur de features de forme (Batch * Temps, Canaux, Hauteur, Largeur).
-        num_frames: Le nombre de frames par vidéo (T).
-        fold_div: La proportion des canaux à décaler (1/fold_div). 8 est le standard.
+        x: Tensor of shape ``(B * T, C, H, W)``.
+        num_frames: Temporal extent ``T`` (must divide ``x.size(0)``).
+        fold_div: Fraction ``1/fold_div`` of the channels to shift in each
+            direction (forward + backward).
     """
     nt, c, h, w = x.size()
-    batch_size = nt // num_frames
-    
-    # On reformate pour séparer le Batch et le Temps : (B, T, C, H, W)
-    x = x.view(batch_size, num_frames, c, h, w)
-
-    # On crée un tenseur vide pour stocker le résultat
-    out = torch.zeros_like(x)
-    
-    # On calcule combien de canaux représentent 1/8 du total
+    n = nt // num_frames
+    x = x.view(n, num_frames, c, h, w)
     fold = c // fold_div
 
-    # 1. Décalage vers le passé (les canaux [0 : fold] reculent d'un pas)
+    out = torch.zeros_like(x)
     out[:, :-1, :fold] = x[:, 1:, :fold]
-    
-    # 2. Décalage vers le futur (les canaux [fold : 2*fold] avancent d'un pas)
-    out[:, 1:, fold: 2 * fold] = x[:, :-1, fold: 2 * fold]
-    
-    # 3. Le reste (les canaux [2*fold : fin]) ne bouge pas
+    out[:, 1:, fold:2 * fold] = x[:, :-1, fold:2 * fold]
     out[:, :, 2 * fold:] = x[:, :, 2 * fold:]
-
-    # On remet le tenseur dans la forme (B*T, C, H, W) pour les convolutions 2D
     return out.view(nt, c, h, w)
 
 
+class TemporalShiftWrapper(nn.Module):
+    """Apply a temporal shift to the input, then run the wrapped module.
+
+    Designed to wrap ``BasicBlock.conv1`` so that the shift only affects the
+    residual branch, not the skip-connection.
+    """
+
+    def __init__(self, net: nn.Module, num_frames: int, fold_div: int = 8) -> None:
+        super().__init__()
+        self.net = net
+        self.num_frames = num_frames
+        self.fold_div = fold_div
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = temporal_shift(x, self.num_frames, self.fold_div)
+        return self.net(x)
+
+
+def install_temporal_shift(resnet: nn.Module, num_frames: int, fold_div: int = 8) -> None:
+    """In-place: wrap every BasicBlock's ``conv1`` with a TemporalShift."""
+    for layer in (resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4):
+        for block in layer:
+            block.conv1 = TemporalShiftWrapper(
+                block.conv1, num_frames=num_frames, fold_div=fold_div
+            )
+
+
 class TSMResNet(nn.Module):
+    """ResNet18 with TSM injected inside every residual block.
+
+    Forward signature matches the rest of the codebase: ``(B, T, C, H, W) -> (B, num_classes)``.
     """
-    Un ResNet18 classique équipé du Temporal Shift Module.
-    """
-    def __init__(self, num_classes: int, num_frames: int = 4, pretrained: bool = False):
+
+    def __init__(
+        self,
+        num_classes: int,
+        num_frames: int = 4,
+        pretrained: bool = False,
+        dropout_p: float = 0.5,
+        fold_div: int = 8,
+    ) -> None:
         super().__init__()
         self.num_frames = num_frames
-        
-        # 1. On charge le backbone
+
         weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
         resnet = models.resnet18(weights=weights)
-        
-        # 2. On découpe le ResNet pour injecter le TSM entre les blocs principaux
-        # Le premier bloc contient la convolution initiale et le maxpool
-        self.layer1 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool, resnet.layer1)
-        self.layer2 = resnet.layer2
-        self.layer3 = resnet.layer3
-        self.layer4 = resnet.layer4
-        
-        # 3. Couches de classification
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        # On ajoute un peu de dropout pour régulariser
-        self.dropout = nn.Dropout(p=0.5)
-        self.fc = nn.Linear(resnet.fc.in_features, num_classes)
+        install_temporal_shift(resnet, num_frames=num_frames, fold_div=fold_div)
 
-        # Initialisation si entraînement from scratch
+        feature_dim = resnet.fc.in_features
+        resnet.fc = nn.Identity()
+        self.backbone = resnet
+
+        self.pool_dropout = nn.Dropout(p=dropout_p)
+        self.fc = nn.Linear(feature_dim, num_classes)
+
         if not pretrained:
             self._initialize_weights()
+        else:
+            self._initialize_head_only()
 
-    def _initialize_weights(self):
+    def _initialize_weights(self) -> None:
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def _initialize_head_only(self) -> None:
+        nn.init.normal_(self.fc.weight, 0, 0.01)
+        nn.init.constant_(self.fc.bias, 0)
+
+    def encode(self, video_batch: torch.Tensor) -> torch.Tensor:
+        """Return temporally pooled features ``(B, feature_dim)``."""
+        b, t, c, h, w = video_batch.shape
+        if t != self.num_frames:
+            raise ValueError(
+                f"TSMResNet expects num_frames={self.num_frames} but got T={t}"
+            )
+        x = video_batch.reshape(b * t, c, h, w)
+        feats = self.backbone(x)  # (B*T, feature_dim)
+        feats = feats.view(b, t, -1).mean(dim=1)
+        return feats
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
-        # video_batch shape: (Batch, Temps, Canaux, Hauteur, Largeur)
-        batch_size, num_frames, channels, height, width = video_batch.shape
-        
-        # On fusionne B et T pour traiter chaque image comme indépendante
-        x = video_batch.reshape(batch_size * num_frames, channels, height, width)
-
-        # Passage dans les blocs avec TSM intercalé
-        x = self.layer1(x)
-        x = temporal_shift(x, self.num_frames) # L'information temporelle circule ici
-        
-        x = self.layer2(x)
-        x = temporal_shift(x, self.num_frames) # Et ici
-        
-        x = self.layer3(x)
-        x = temporal_shift(x, self.num_frames) # Et ici
-        
-        x = self.layer4(x)
-        
-        # Pooling spatial : on réduit chaque image à un vecteur
-        x = self.pool(x)
-        x = torch.flatten(x, start_dim=1)
-        x = self.dropout(x)
-
-        # On sépare à nouveau B et T : (Batch, Temps, Features)
-        x = x.view(batch_size, num_frames, -1)
-        
-        # Pooling Temporel : on fait la moyenne sur le temps (Consensus)
-        x = x.mean(dim=1)
-        
-        # Classification finale
-        logits = self.fc(x)
-        return logits
+        feats = self.encode(video_batch)
+        feats = self.pool_dropout(feats)
+        return self.fc(feats)

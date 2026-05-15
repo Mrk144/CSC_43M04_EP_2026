@@ -1,11 +1,10 @@
 # @package _global_
-# Track A best so far: TSM-ResNet18 from scratch, CE + label smoothing,
-# AdamW with linear warmup -> cosine schedule.
+# Track A: two-stream TSM (RGB + frame-difference) from scratch.
 defaults:
-  - override /model: tsm_resnet
+  - override /model: tsm_two_stream
 
 training:
-  batch_size: 64
+  batch_size: 32
   lr: 3e-4
   epochs: 30
   warmup_epochs: 3

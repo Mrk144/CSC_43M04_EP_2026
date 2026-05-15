@@ -24,21 +24,17 @@ import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
+import torch.optim as optim
+from hydra.core.hydra_config import HydraConfig
+
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
+from losses import FocalLossWithSmoothing
 from models.cnn_baseline import CNNBaseline
 from models.cnn_lstm import CNNLSTM
-from utils import build_transforms, set_seed, split_train_val
-
-# ==============================================================================
-# === NOUVEAU CODE (TRACK A) : Nouveaux imports ===
-# ==============================================================================
-import torch.optim as optim
 from models.cnn_lstm_improved import CNNLSTMImproved
-from losses import FocalLossWithSmoothing
 from models.tsm_resnet import TSMResNet
-# AJOUT : Pour le chemin Hydra et les warnings AMP
-from hydra.core.hydra_config import HydraConfig
-# ==============================================================================
+from models.tsm_two_stream import TSMTwoStream
+from utils import build_transforms, set_seed, split_train_val
 
 
 def build_model(cfg: DictConfig) -> nn.Module:
@@ -47,36 +43,98 @@ def build_model(cfg: DictConfig) -> nn.Module:
     num_classes = cfg.model.num_classes
     pretrained = cfg.model.pretrained
 
-    # --- ANCIEN CODE ---
     if name == "cnn_baseline":
         return CNNBaseline(num_classes=num_classes, pretrained=pretrained)
     if name == "cnn_lstm":
-        hidden = cfg.model.get("lstm_hidden_size", 512)
         return CNNLSTM(
             num_classes=num_classes,
             pretrained=pretrained,
-            lstm_hidden_size=int(hidden),
+            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
         )
-
-    # ==========================================================================
-    # === NOUVEAU CODE (TRACK A) : Ajout du nouveau modèle ===
-    # ==========================================================================
-    elif name == "cnn_lstm_improved":
+    if name == "cnn_lstm_improved":
         return CNNLSTMImproved(
             num_classes=num_classes,
             pretrained=pretrained,
-            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 512)),
-            dropout_p=float(cfg.model.get("dropout", 0.5))
+            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
         )
-    elif name == "tsm_resnet":
+    if name == "tsm_resnet":
         return TSMResNet(
             num_classes=num_classes,
             num_frames=int(cfg.dataset.num_frames),
-            pretrained=pretrained
+            pretrained=pretrained,
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
         )
-    # ==========================================================================
+    if name == "tsm_two_stream":
+        return TSMTwoStream(
+            num_classes=num_classes,
+            num_frames=int(cfg.dataset.num_frames),
+            pretrained=pretrained,
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
+        )
 
     raise ValueError(f"Unknown model.name: {name}")
+
+
+def build_loss(cfg: DictConfig) -> nn.Module:
+    """Pick the training loss from cfg.training.loss.
+
+    Default: ``CrossEntropyLoss(label_smoothing=0.1)``. Setting
+    ``training.loss.name = "focal_loss"`` switches to the focal variant.
+    """
+    loss_cfg = cfg.training.get("loss", {}) or {}
+    name = loss_cfg.get("name", "cross_entropy")
+    label_smoothing = float(loss_cfg.get("label_smoothing", 0.1))
+    if name == "focal_loss":
+        gamma = float(loss_cfg.get("gamma", 2.0))
+        return FocalLossWithSmoothing(smoothing=label_smoothing, gamma=gamma)
+    return nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+
+
+def build_param_groups(model: nn.Module, weight_decay: float) -> list[dict]:
+    """Split parameters into two groups: with vs without weight decay.
+
+    BatchNorm/LayerNorm parameters (rank-1 tensors) and biases get no weight
+    decay; the rest gets full weight decay. Standard recipe to avoid hurting
+    BN statistics and biases when training from scratch.
+    """
+    decay, no_decay = [], []
+    for _name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if param.ndim <= 1:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    return [
+        {"params": decay, "weight_decay": weight_decay},
+        {"params": no_decay, "weight_decay": 0.0},
+    ]
+
+
+def build_scheduler(
+    optimizer: torch.optim.Optimizer,
+    total_epochs: int,
+    warmup_epochs: int,
+    eta_min: float = 1e-6,
+) -> torch.optim.lr_scheduler.LRScheduler:
+    """Linear warmup over ``warmup_epochs`` then cosine annealing for the rest."""
+    if warmup_epochs <= 0 or warmup_epochs >= total_epochs:
+        return optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=max(total_epochs, 1), eta_min=eta_min
+        )
+    warmup = optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1.0 / max(warmup_epochs * 5, 1),
+        end_factor=1.0,
+        total_iters=warmup_epochs,
+    )
+    cosine = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=max(total_epochs - warmup_epochs, 1), eta_min=eta_min
+    )
+    return optim.lr_scheduler.SequentialLR(
+        optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs]
+    )
 
 
 def train_one_epoch(
@@ -85,7 +143,6 @@ def train_one_epoch(
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
-    # AJOUT : Scaler pour l'AMP
     scaler: torch.amp.GradScaler,
 ) -> Tuple[float, float]:
     """Returns (average loss, top-1 accuracy) on the training set for one epoch."""
@@ -95,21 +152,16 @@ def train_one_epoch(
     total = 0
 
     for video_batch, labels in data_loader:
-        # video_batch: (B, T, C, H, W), labels: (B,)
         video_batch = video_batch.to(device)
         labels = labels.to(device)
 
         optimizer.zero_grad()
 
-        # AJOUT : Utilisation de l'AMP pour accélérer
-        with torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
-            logits = model(video_batch)  # (B, num_classes)
+        with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
+            logits = model(video_batch)
             loss = loss_fn(logits, labels)
-        
-        # AJOUT : Scale de la loss et step via scaler
+
         scaler.scale(loss).backward()
-        # Obligatoire pour LSTMs et Transformers pour éviter les NaN losses
-        # ======================================================================
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         scaler.step(optimizer)
@@ -142,8 +194,7 @@ def evaluate_epoch(
         video_batch = video_batch.to(device)
         labels = labels.to(device)
 
-        # AJOUT : Autocast en évaluation
-        with torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
+        with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
             logits = model(video_batch)
             loss = loss_fn(logits, labels)
 
@@ -221,81 +272,67 @@ def main(cfg: DictConfig) -> None:
 
     model = build_model(cfg).to(device)
 
-    # ==========================================================================
-    # === NOUVEAU CODE (TRACK A) : Loss et Optimiseur Dynamiques ===
-    # ==========================================================================
-    # Choix de la Fonction de Perte
-    loss_name = cfg.training.get("loss", {}).get("name", "cross_entropy")
-    if loss_name == "focal_loss":
-        smoothing = float(cfg.training.get("loss", {}).get("label_smoothing", 0.1))
-        gamma = float(cfg.training.get("loss", {}).get("gamma", 2.0))
-        loss_fn = FocalLossWithSmoothing(smoothing=smoothing, gamma=gamma)
-    else:
-        loss_fn = nn.CrossEntropyLoss()
+    loss_fn = build_loss(cfg)
 
-    # Choix de l'Optimiseur
-    opt_name = cfg.training.get("optimizer", {}).get("name", "adam")
+    opt_name = cfg.training.get("optimizer", {}).get("name", "adamw")
     lr = float(cfg.training.lr)
     wd = float(cfg.training.get("optimizer", {}).get("weight_decay", 0.0))
-    
+    param_groups = build_param_groups(model, weight_decay=wd)
+
     if opt_name == "adamw":
-        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+        optimizer = optim.AdamW(param_groups, lr=lr)
+    elif opt_name == "sgd":
+        momentum = float(cfg.training.get("optimizer", {}).get("momentum", 0.9))
+        optimizer = optim.SGD(param_groups, lr=lr, momentum=momentum, nesterov=True)
     else:
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        optimizer = optim.Adam(param_groups, lr=lr)
 
-    # Ajout du Scheduler (Gestion de la vitesse d'apprentissage)
     epochs = int(cfg.training.epochs)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
-    # ==========================================================================
+    warmup_epochs = int(cfg.training.get("warmup_epochs", 0))
+    scheduler = build_scheduler(
+        optimizer, total_epochs=epochs, warmup_epochs=warmup_epochs
+    )
 
-    # AJOUT : Initialisation du Scaler pour AMP
-    scaler = torch.amp.GradScaler('cuda', enabled=(device.type == "cuda"))
+    scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
 
-    # ==========================================================================
-    # === NOUVEAU CODE (TRACK A) : Reprise de l'entraînement (Resume) ===
-    # ==========================================================================
     start_epoch = 0
     best_val_accuracy = 0.0
     resume_path = cfg.training.get("resume_from")
-    
+
     if resume_path:
         resume_path = Path(resume_path).resolve()
         if resume_path.exists():
-            print(f"🔄 Reprise de l'entraînement depuis : {resume_path}")
+            print(f"Resuming training from: {resume_path}")
             checkpoint = torch.load(resume_path, map_location=device)
             model.load_state_dict(checkpoint["model_state_dict"])
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
             start_epoch = checkpoint["epoch"] + 1
             best_val_accuracy = checkpoint.get("val_accuracy", 0.0)
-            print(f"✅ Repris à l'époque {start_epoch} (Best Val Acc: {best_val_accuracy:.4f})")
+            print(
+                f"Resumed at epoch {start_epoch} "
+                f"(best val acc so far: {best_val_accuracy:.4f})"
+            )
         else:
-            print(f"⚠️ Fichier de reprise introuvable : {resume_path}")
+            print(f"Resume checkpoint not found: {resume_path}")
 
-    # ==========================================================================
-    # === NOUVEAU CODE (HYDRA) : Chemin de sauvegarde robuste ===
-    # ==========================================================================
     run_dir = Path(HydraConfig.get().runtime.output_dir)
     checkpoint_path = Path(cfg.training.checkpoint_path)
     if not checkpoint_path.is_absolute():
         checkpoint_path = run_dir / checkpoint_path
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    # ==========================================================================
+    print(f"Checkpoints will be written to: {checkpoint_path}")
 
     for epoch in range(start_epoch, int(cfg.training.epochs)):
         train_loss, train_acc = train_one_epoch(
             model, train_loader, loss_fn, optimizer, device, scaler
         )
         val_loss, val_acc = evaluate_epoch(model, val_loader, loss_fn, device)
-
-        # ======================================================================
-        # === NOUVEAU CODE (TRACK A) : Mise à jour du Scheduler ===
-        # ======================================================================
         scheduler.step()
-        # ======================================================================
 
+        current_lr = optimizer.param_groups[0]["lr"]
         print(
-            f"Epoch {epoch + 1}/{cfg.training.epochs} | "
+            f"Epoch {epoch + 1}/{cfg.training.epochs} | lr {current_lr:.2e} | "
             f"train loss {train_loss:.4f} acc {train_acc:.4f} | "
             f"val loss {val_loss:.4f} acc {val_acc:.4f}"
         )
@@ -316,7 +353,7 @@ def main(cfg: DictConfig) -> None:
             }
             if "lstm" in cfg.model.name:
                 payload["lstm_hidden_size"] = int(
-                    cfg.model.get("lstm_hidden_size", 512)
+                    cfg.model.get("lstm_hidden_size", 256)
                 )
 
             torch.save(payload, checkpoint_path)

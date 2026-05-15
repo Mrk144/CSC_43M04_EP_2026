@@ -111,8 +111,12 @@ def build_model_from_checkpoint(ckpt: Dict[str, Any]) -> torch.nn.Module:
                 "name": ckpt.get("model_name", "cnn_baseline"),
                 "num_classes": int(ckpt["num_classes"]),
                 "pretrained": bool(ckpt.get("pretrained", True)),
-                "lstm_hidden_size": int(ckpt.get("lstm_hidden_size", 512)),
-            }
+                "lstm_hidden_size": int(ckpt.get("lstm_hidden_size", 256)),
+                "dropout": float(ckpt.get("dropout", 0.5)),
+            },
+            "dataset": {
+                "num_frames": int(ckpt.get("num_frames", 4)),
+            },
         }
     )
     return build_model(cfg)

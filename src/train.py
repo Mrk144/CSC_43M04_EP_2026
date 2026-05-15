@@ -32,6 +32,7 @@ from losses import FocalLossWithSmoothing
 from models.cnn_baseline import CNNBaseline
 from models.cnn_lstm import CNNLSTM
 from models.cnn_lstm_improved import CNNLSTMImproved
+from models.pretrained_video import PretrainedVideoModel
 from models.tsm_resnet import TSMResNet
 from models.tsm_two_stream import TSMTwoStream
 from utils import build_transforms, set_seed, split_train_val
@@ -71,6 +72,13 @@ def build_model(cfg: DictConfig) -> nn.Module:
             num_frames=int(cfg.dataset.num_frames),
             pretrained=pretrained,
             dropout_p=float(cfg.model.get("dropout", 0.5)),
+        )
+    if name == "pretrained_video":
+        return PretrainedVideoModel(
+            backbone=str(cfg.model.backbone),
+            num_classes=num_classes,
+            pretrained=pretrained,
+            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
         )
 
     raise ValueError(f"Unknown model.name: {name}")

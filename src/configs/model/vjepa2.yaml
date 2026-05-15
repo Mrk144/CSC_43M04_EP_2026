@@ -1,0 +1,15 @@
+# @package _global_
+# V-JEPA2 (Meta) self-supervised video encoder + linear classifier.
+# Variants:
+#   facebook/vjepa2-vitl-fpc16-256 (default, ViT-L, 16 frames, 256x256)
+#   facebook/vjepa2-vitg-fpc16-256 (heavier ViT-g)
+#   facebook/vjepa2-vitl-fpc64-256 (more temporal context, slower)
+model:
+  name: vjepa2
+  variant: facebook/vjepa2-vitl-fpc16-256
+  pretrained: true
+  num_classes: ${num_classes}
+  freeze_backbone: false
+  num_frames: 16
+  input_size: 256
+  dropout: 0.1

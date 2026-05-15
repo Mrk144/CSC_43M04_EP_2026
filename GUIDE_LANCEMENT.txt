@@ -1,0 +1,346 @@
+================================================================================
+  GUIDE DE LANCEMENT — Train (from scratch / pré-entraîné), test, soumission, ensemble
+================================================================================
+
+Répertoire du dépôt : celui qui contient ce fichier (racine projet).
+Les scripts Python Hydra DOIVENT être lancés avec le répertoire courant = src/
+
+  cd /chemin/vers/CSC_43M04_EP_2026/src
+
+Environnement :
+
+  cd /chemin/vers/CSC_43M04_EP_2026
+  uv sync
+  source .venv/bin/activate    # Linux / macOS
+
+
+--------------------------------------------------------------------------------
+0. RAPPELS IMPORTANTS
+--------------------------------------------------------------------------------
+
+  • num_classes : 33 (configs/config.yaml).
+
+  • dataset.num_frames : nombre de JPEG lus par clip sur le disque (défaut 4).
+
+  • model.num_frames : longueur temporelle INTERNE au modèle (interpolation
+    linéaire dans le forward) — Track A souvent 7, Track B souvent 16 (InternVideo2: 8).
+
+  • Checkpoint sauvé : training.checkpoint_path (défaut "best_model.pt"),
+    relatif au répertoire du run Hydra. Après un train simple :
+      src/outputs/YYYY-MM-DD_HH-MM-SS/best_model.pt
+
+  • Pour forcer un dossier de sortie (recommandé) :
+      python train.py experiment=... hydra.run.dir=/abs/run/mon_experience
+
+  • Normalisation : si model.pretrained=true, build_transforms utilise les stats
+    ImageNet (cohérent VideoMAE, foundation models, ResNet ImageNet).
+
+  • Variable shell utile pour les exemples ci-dessous :
+      export CKPT=/abs/chemin/vers/best_model.pt
+
+
+--------------------------------------------------------------------------------
+1. DONNÉES (configs/data/default.yaml)
+--------------------------------------------------------------------------------
+
+  train_dir   → processed_data/val2/train   (relatif à cwd = src/)
+  val_dir     → processed_data/val2/val
+  test_dir    → processed_data/val2/test
+  submission  → processed_data/val2/submission.csv
+
+Surcharge :
+
+  python train.py dataset.train_dir=/abs/train dataset.val_dir=/abs/val
+
+Tests rapides (sous-échantillon) :
+
+  python train.py experiment=track_a_best dataset.max_samples=500
+
+
+--------------------------------------------------------------------------------
+2. TABLE — ENTRAÎNEMENT FROM SCRATCH (Track A & baselines)
+--------------------------------------------------------------------------------
+
+Tous ces expériences utilisent model.pretrained=false (sauf si le YAML du modèle
+contredit — équilibre du fichier experiment).
+
+  experiment                  | Modèle (group)     | model.num_frames | batch | lr      | epochs | warmup | notes
+  -----------------------------+-------------------+----------------+-------+---------+--------+--------+------
+  track_a_best                 | tsm_resnet        | 7              | 64    | 3e-4    | 40     | 3      | Référence Track A
+  track_a_two_stream           | tsm_two_stream    | 7              | 32    | 3e-4    | 40     | 3      | RGB + frame-diff
+  track_a_cnn_transformer      | cnn_transformer   | 7              | 64    | 3e-4    | 50     | 3      | ResNet18 + transformer
+  baseline_from_scratch        | cnn_baseline      | 7              | 8*    | 1e-4*   | 5*     | 0*     | *hérite train/default — surcharger (voir §2.1)
+
+Commandes (depuis src/) :
+
+  python train.py experiment=track_a_best
+  python train.py experiment=track_a_two_stream
+  python train.py experiment=track_a_cnn_transformer
+  python train.py experiment=baseline_from_scratch
+
+Depuis la racine du repo (enchaîne TSM puis two-stream) :
+
+  chmod +x scripts/train_track_a_sequential.sh
+  ./scripts/train_track_a_sequential.sh
+
+  # Avec overrides Hydra pour les deux runs :
+  TRAIN_EXTRA_ARGS="training.batch_size=32 training.device=cuda" ./scripts/train_track_a_sequential.sh
+
+
+2.1 baseline_from_scratch — recommandations
+
+Le YAML ne fixe que le modèle ; l’entraînement par défaut vient de
+configs/train/default.yaml (batch 8, lr 1e-4, 5 epochs). Pour un entraînement
+sérieux, alignez-vous sur track_a_best :
+
+  python train.py experiment=baseline_from_scratch \
+    training.batch_size=64 training.lr=3e-4 training.epochs=40 \
+    training.warmup_epochs=3 training.num_workers=12 \
+    training.optimizer.name=adamw training.optimizer.weight_decay=0.05 \
+    training.loss.name=cross_entropy training.loss.label_smoothing=0.1
+
+
+2.2 Autres modèles « from scratch » sans expérience dédiée
+
+Hydra peut composer model=cnn_lstm, cnn_lstm_improved en remplaçant le groupe
+model, mais l’experiment baseline_from_scratch force cnn_baseline. Utilisez
+une chaîne d’overrides qui remplace bien le modèle, ou copiez un yaml.
+
+  Exemple (CNN + BiLSTM from scratch, 7 frames internes, recette proche Track A) :
+
+  python train.py \
+    model.name=cnn_lstm model.pretrained=false model.num_frames=7 \
+    model.lstm_hidden_size=256 \
+    training.batch_size=32 training.lr=3e-4 training.epochs=40 \
+    training.warmup_epochs=3 training.num_workers=12 \
+    training.optimizer.name=adamw training.optimizer.weight_decay=0.05 \
+    training.loss.label_smoothing=0.1
+
+  Variante « improved » (dropout + GELU) :
+
+  python train.py \
+    model.name=cnn_lstm_improved model.pretrained=false model.num_frames=7 \
+    model.lstm_hidden_size=256 model.dropout=0.5 \
+    training.batch_size=32 training.lr=3e-4 training.epochs=40 \
+    training.warmup_epochs=3 training.num_workers=12 \
+    training.optimizer.name=adamw training.optimizer.weight_decay=0.05 \
+    training.loss.label_smoothing=0.1
+
+VRAM (ordre de grandeur) : two-stream et cnn_transformer plus lourds que
+tsm_resnet seul ; réduisez batch_size si OOM.
+
+
+--------------------------------------------------------------------------------
+3. TABLE — ENTRAÎNEMENT PRÉ-ENTRAÎNÉ (Track B)
+--------------------------------------------------------------------------------
+
+3.1 Une phase — fine-tune direct (backbone + tête)
+
+  experiment                | modèle              | prét. | T int. | batch | lr    | epochs | warmup
+  --------------------------+--------------------+-------+--------+-------+-------+--------+--------
+  track_b_pretrained_video  | pretrained_video   | true  | 16     | 16    | 1e-4  | 20     | 2
+
+Backbone défaut : model.backbone=r2plus1d_18 (configs/model/pretrained_video.yaml).
+Autres backbones :
+
+  python train.py experiment=track_b_pretrained_video model.backbone=r3d_18
+  python train.py experiment=track_b_pretrained_video model.backbone=mc3_18
+  python train.py experiment=track_b_pretrained_video model.backbone=s3d
+
+Tête seule (linear probe) sur ce backbone :
+
+  python train.py experiment=track_b_pretrained_video model.freeze_backbone=true \
+    training.lr=1e-3 training.epochs=5
+
+3.2 Baseline ImageNet (2D) — ResNet18 + moyenne temporelle
+
+  experiment          | modèle       | prét. | T int. | train défaut*
+  --------------------+--------------+-------+--------+---------------
+  baseline_pretrained | cnn_baseline | true  | 16     | *batch 8, 5 epoch (train/default) — surcharger comme §2.1 si besoin
+
+  python train.py experiment=baseline_pretrained
+
+3.3 Deux phases (geler backbone → finetune complet)
+
+Script depuis la RACINE du dépôt :
+
+  chmod +x scripts/train_two_phase.sh
+
+  ./scripts/train_two_phase.sh videomae
+  ./scripts/train_two_phase.sh videomae_large
+  ./scripts/train_two_phase.sh vjepa2
+  ./scripts/train_two_phase.sh internvideo2
+  ./scripts/train_two_phase.sh x3d
+
+Équivalent VideoMAE seul :
+
+  chmod +x scripts/train_videomae_two_phase.sh
+  ./scripts/train_videomae_two_phase.sh
+
+Overrides pour les DEUX phases (ex. moins de VRAM) :
+
+  TRAIN_EXTRA_ARGS="training.batch_size=4 training.device=cuda" ./scripts/train_two_phase.sh vjepa2
+
+
+TABLE récapitulative phase 1 (head) / phase 2 (finetune) :
+
+  tag            | phase 1 experiment              | bs  | lr    | ep | phase 2 experiment               | bs | lr    | ep
+  ---------------+---------------------------------+-----+-------+----+----------------------------------+----+-------+----
+  videomae       | track_b_videomae_head           | 8   | 1e-3  | 5  | track_b_videomae_finetune        | 8  | 2e-5  | 10
+  videomae_large | track_b_videomae_large_head     | 4   | 1e-3  | 5  | track_b_videomae_large_finetune  | 2  | 1e-5  | 10
+  vjepa2         | track_b_vjepa2_head             | 8   | 1e-3  | 5  | track_b_vjepa2_finetune          | 4  | 1e-5  | 10
+  internvideo2   | track_b_internvideo2_head       | 8   | 1e-3  | 5  | track_b_internvideo2_finetune    | 4  | 1e-5  | 10
+  x3d            | track_b_x3d_head                | 16  | 1e-3  | 5  | track_b_x3d_finetune             | 8  | 5e-5  | 15
+
+Phase 2 nécessite le checkpoint phase 1 : le script place resume_from automatiquement.
+Manuel phase 2 :
+
+  python train.py experiment=track_b_videomae_finetune \
+    training.resume_from=/abs/phase1/best_model.pt \
+    hydra.run.dir=/abs/run/videomae_phase2
+
+Tous les yaml finetune ont training.resume_model_only: true (recharge uniquement
+les poids du réseau, pas l’optimiseur de la phase 1).
+
+
+3.4 Lancer une phase seule (sans script)
+
+  python train.py experiment=track_b_videomae_head hydra.run.dir=/abs/run/vm_head
+  python train.py experiment=track_b_vjepa2_finetune \
+    training.resume_from=/abs/run/vm_head/best_model.pt \
+    hydra.run.dir=/abs/run/vjepa2_ft
+
+Variantes / pistes utiles :
+
+  # VideoMAE autre checkpoint HF
+  python train.py experiment=track_b_videomae_head \
+    model.variant=MCG-NJU/videomae-base-finetuned-kinetics
+
+  # V-JEPA2 / InternVideo2 : input_size dans configs/model/
+  python train.py experiment=track_b_vjepa2_head model.input_size=256
+
+  # X3D plus petit (4 frames natifs, 182x182 recommandé)
+  python train.py experiment=track_b_x3d_head model.variant=x3d_xs model.num_frames=4 model.input_size=182
+
+
+--------------------------------------------------------------------------------
+4. ESSAYER UN MODÈLE — ÉVALUATION (validation complète)
+--------------------------------------------------------------------------------
+
+Toujours depuis src/. Le checkpoint doit être le best_model.pt du bon run.
+
+  python evaluate.py training.checkpoint_path=$CKPT
+
+Paramètres souvent utiles :
+
+  python evaluate.py \
+    training.checkpoint_path=$CKPT \
+    training.batch_size=16 \
+    training.device=cuda \
+    dataset.val_dir=/abs/val
+
+Les métriques affichées (top-1, top-5) utilisent le même prétraitement que
+l’entraînement : le flag pretrained du checkpoint pilote ImageNet norm vs [0.5].
+
+
+--------------------------------------------------------------------------------
+5. ESSAYER UN MODÈLE — SOUMISSION (fichier test)
+--------------------------------------------------------------------------------
+
+  python create_submission.py training.checkpoint_path=$CKPT
+
+Sortie par défaut : processed_data/val2/submission.csv (sous src/).
+
+  python create_submission.py \
+    training.checkpoint_path=$CKPT \
+    dataset.submission_output=/abs/soumission.csv \
+    dataset.test_manifest=/abs/manifest.csv \
+    training.batch_size=8
+
+
+--------------------------------------------------------------------------------
+6. PRÉDICTIONS POUR ENSEMBLE — predict_softmax.py
+--------------------------------------------------------------------------------
+
+Par modèle entraîné, génère val.npz + test.npz (alignement des noms de vidéos
+obligatoire pour ensemble.py).
+
+  python predict_softmax.py training.checkpoint_path=$CKPT
+
+Dossier de sortie explicite (recommandé si plusieurs modèles) :
+
+  python predict_softmax.py \
+    training.checkpoint_path=$CKPT \
+    predict.output_dir=/abs/preds/nom_du_modele
+
+Contenu : val.npz (softmax, labels, val_accuracy), test.npz (softmax).
+
+
+--------------------------------------------------------------------------------
+7. ENSEMBLE — soft voting (pas un MoE entraîné)
+--------------------------------------------------------------------------------
+
+  1) predict_softmax pour chaque checkpoint
+  2) Éditer src/configs/ensemble/default.yaml : val_npz, test_npz par modèle
+  3) Lancer :
+
+  python ensemble.py +ensemble=default
+
+Méthodes :
+
+  python ensemble.py +ensemble=default ensemble.method=mean_softmax
+  python ensemble.py +ensemble=default ensemble.method=weighted_softmax ensemble.weights=[0.6,0.4]
+  python ensemble.py +ensemble=default ensemble.method=weighted_softmax ensemble.weights=auto
+  python ensemble.py +ensemble=default ensemble.method=temperature_then_mean \
+    ensemble.output_csv=/abs/submission_ensemble.csv
+
+
+--------------------------------------------------------------------------------
+8. VRAM (~20 Go) — PARAMÈTRES À AJUSTER
+--------------------------------------------------------------------------------
+
+  • Réduire training.batch_size (phase 2 VideoMAE large : déjà 2).
+  • foundation models : batch 4 → 2 → 1
+  • track_a_best batch 64 → 32 ou 16
+  • model.variant plus léger (VideoMAE base vs large ; x3d_xs vs x3d_m)
+  • dataset.max_samples pour valider le pipeline sans saturer la mémoire
+
+
+--------------------------------------------------------------------------------
+9. RÉFÉRENCE RAPIDE DES OVERRIDE HYDRA
+--------------------------------------------------------------------------------
+
+  training.checkpoint_path
+  training.device             cuda | cpu
+  training.batch_size
+  training.epochs
+  training.lr
+  training.warmup_epochs
+  training.resume_from
+  training.resume_model_only
+  training.num_workers
+  training.optimizer.name     adamw | sgd | adam
+  training.optimizer.weight_decay
+  training.loss.name          cross_entropy | focal_loss
+  training.loss.label_smoothing
+  model.name / model.pretrained / model.num_frames / model.backbone / model.variant
+  model.freeze_backbone
+  dataset.num_frames / dataset.max_samples
+  hydra.run.dir
+
+
+--------------------------------------------------------------------------------
+10. ENCHAÎNEMENT TYPE COMPÉTITION
+--------------------------------------------------------------------------------
+
+  A) Entraîner (from scratch Track A et/ou pré-entraîné Track B), noter chaque
+     .../best_model.pt
+  B) evaluate.py sur chaque .pt
+  C) predict_softmax.py par .pt → dossiers preds distincts
+  D) Renseigner configs/ensemble/default.yaml puis ensemble.py
+  E) Soumettre le CSV final (meilleur solo ou ensemble)
+
+
+================================================================================
+  Fin du guide — remplacer $CKPT et les chemins /abs par tes chemins réels.
+================================================================================

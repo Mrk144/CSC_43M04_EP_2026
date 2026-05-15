@@ -1,0 +1,20 @@
+# @package _global_
+# Hybrid CNN-Transformer for Track A.
+# Per-frame ResNet-18 + small temporal transformer.
+# ``num_frames=7`` matches Track A (4 raw frames -> 7 interpolated frames done
+# inside the model). Set to 0 to use the dataset's num_frames directly.
+# ``spatial_tokens_side``: 1 -> one token per frame (default, lightest),
+# 2 -> 2x2 = 4 tokens per frame, 0 -> keep native 7x7 grid (heavy).
+model:
+  name: cnn_transformer
+  pretrained: false
+  num_classes: ${num_classes}
+  num_frames: 7
+  spatial_tokens_side: 1
+  d_model: 512
+  num_layers: 4
+  num_heads: 8
+  mlp_ratio: 2.0
+  dropout: 0.1
+  attn_dropout: 0.0
+  drop_path: 0.1

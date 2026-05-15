@@ -1,9 +1,8 @@
 # @package _global_
-# Track B phase 1: linear probing (head only) on VideoMAE SSv2-pretrained backbone.
-# Dataset serves the raw 4 frames; the VideoMAE wrapper interpolates to 16
-# internally (matching its positional embeddings).
+# Track B phase 1: linear probing on V-JEPA2 (head only).
+# The encoder is frozen; only the new linear classifier is trained.
 defaults:
-  - override /model: videomae
+  - override /model: vjepa2
 
 model:
   freeze_backbone: true

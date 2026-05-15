@@ -113,6 +113,7 @@ def build_model_from_checkpoint(ckpt: Dict[str, Any]) -> torch.nn.Module:
                 "pretrained": bool(ckpt.get("pretrained", True)),
                 "lstm_hidden_size": int(ckpt.get("lstm_hidden_size", 256)),
                 "dropout": float(ckpt.get("dropout", 0.5)),
+                "num_frames": int(ckpt.get("model_num_frames", 0)),
             },
             "dataset": {
                 "num_frames": int(ckpt.get("num_frames", 4)),
@@ -169,7 +170,9 @@ def main(cfg: DictConfig) -> None:
         raise SystemExit(f"Checkpoint not found: {checkpoint_path}")
 
     print(f"Loading checkpoint: {checkpoint_path}", flush=True)
-    ckpt: Dict[str, Any] = torch.load(checkpoint_path, map_location="cpu")
+    ckpt: Dict[str, Any] = torch.load(
+        checkpoint_path, map_location="cpu", weights_only=False
+    )
     model = build_model_from_checkpoint(ckpt)
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)

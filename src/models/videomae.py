@@ -4,10 +4,10 @@ Loads a Kinetics/SSv2-pretrained VideoMAE ViT from HuggingFace and exposes a
 plug-and-play classifier compatible with the rest of the codebase
 (``(B, T, C, H, W) -> (B, num_classes)``).
 
-The base VideoMAE expects 16 frames at 224x224. The dataset already serves
-``num_frames=16`` thanks to the temporal interpolation in
-``src/dataset/video_dataset.py``, so this wrapper just forwards the tensor
-without any tiling.
+The base VideoMAE expects 16 frames at 224x224. The dataset serves the raw
+``T = 4`` frames from disk; we upsample to ``self.num_frames`` (16 by default)
+inside the wrapper. This is critical for submission: only the ``.pt`` is
+shipped, so the temporal transformation has to be inside the model graph.
 
 Variants
 --------
@@ -32,6 +32,8 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
+from models.temporal_utils import temporal_interpolate
+
 
 class VideoMAEClassifier(nn.Module):
     def __init__(
@@ -41,8 +43,10 @@ class VideoMAEClassifier(nn.Module):
         pretrained: bool = True,
         freeze_backbone: bool = False,
         ignore_mismatched_sizes: bool = True,
+        num_frames: int = 16,
     ) -> None:
         super().__init__()
+        self.num_frames = int(num_frames)
         try:
             from transformers import VideoMAEConfig, VideoMAEForVideoClassification
         except ImportError as e:
@@ -64,13 +68,19 @@ class VideoMAEClassifier(nn.Module):
             cfg = VideoMAEConfig.from_pretrained(variant, num_labels=num_classes)
             self.model = VideoMAEForVideoClassification(cfg)
 
-        # HF resets head when num_labels differs from the pretrained head, but
-        # ``ignore_mismatched_sizes=True`` keeps the random init explicit. We
-        # also expose ``self.classifier`` to make the head easy to find.
-        self.classifier = self.model.classifier
-
         if freeze_backbone:
             self.freeze_backbone()
+
+    @property
+    def classifier(self) -> nn.Module:
+        """Expose the classification head without registering it twice.
+
+        Used to be ``self.classifier = self.model.classifier`` but that
+        registered the same submodule under two names and produced duplicate
+        keys in ``state_dict()``. A property avoids the registration while
+        keeping the public API.
+        """
+        return self.model.classifier
 
     def freeze_backbone(self) -> None:
         """Freeze every parameter except the classification head."""
@@ -91,14 +101,18 @@ class VideoMAEClassifier(nn.Module):
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
         """``video_batch``: ``(B, T, C, H, W)`` -> logits ``(B, num_classes)``.
 
+        Input ``T`` can differ from VideoMAE's expected number of frames
+        (typically 16): we linearly interpolate to ``self.num_frames`` first.
         HuggingFace's VideoMAE expects ``pixel_values`` of shape
-        ``(B, T, C, H, W)`` (channel-second after time), which is what our
-        codebase already produces.
+        ``(B, T, C, H, W)`` (channel-second after time).
         """
         if video_batch.dim() != 5:
             raise ValueError(
                 f"Expected video_batch with 5 dims (B,T,C,H,W), got {video_batch.shape}"
             )
+
+        if self.num_frames > 0:
+            video_batch = temporal_interpolate(video_batch, self.num_frames)
 
         outputs = self.model(pixel_values=video_batch)
         return outputs.logits

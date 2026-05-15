@@ -27,15 +27,17 @@ def load_model_from_checkpoint(checkpoint: Dict[str, Any], device: torch.device)
     """
     Rebuild the model from the Hydra config stored in the checkpoint (same as training).
 
-    Checkpoints must include ``config`` (saved by ``train.py``). No duplicate
-    architecture list here—``build_model`` is the single construction site.
+    Accepts either ``config`` (current ``train.py``) or ``cfg`` (legacy
+    checkpoints from older code paths). Both should be plain dicts produced
+    by ``OmegaConf.to_container``.
     """
-    if "config" not in checkpoint or checkpoint["config"] is None:
+    saved_cfg = checkpoint.get("config") or checkpoint.get("cfg")
+    if saved_cfg is None:
         raise ValueError(
-            "Checkpoint has no 'config' entry. Train with the current train.py so the "
-            "full Hydra config is saved with the weights."
+            "Checkpoint has no 'config' (or legacy 'cfg') entry. Train with the "
+            "current train.py so the full Hydra config is saved with the weights."
         )
-    cfg = OmegaConf.create(checkpoint["config"])
+    cfg = OmegaConf.create(saved_cfg)
     model = build_model(cfg)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
@@ -56,7 +58,9 @@ def main(cfg: DictConfig) -> None:
     device = torch.device(device_str)
 
     checkpoint_path = Path(cfg.training.checkpoint_path).resolve()
-    raw: Dict[str, Any] = torch.load(checkpoint_path, map_location=device)
+    raw: Dict[str, Any] = torch.load(
+        checkpoint_path, map_location=device, weights_only=False
+    )
     model = load_model_from_checkpoint(raw, device)
 
     # Normalization must match how the checkpoint was trained (ImageNet stats if pretrained).

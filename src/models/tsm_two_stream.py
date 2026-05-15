@@ -29,6 +29,10 @@ class TSMTwoStream(nn.Module):
         self.num_frames = num_frames
 
         # Each stream produces a (B, 512) pooled feature vector via ``encode``.
+        # The internal ``.fc`` head of each TSMResNet is never used by this
+        # forward (we go through ``encode`` only) so we replace it with Identity
+        # to avoid 2 * (33*512 + 33) = ~34k dead parameters that the optimizer
+        # would still apply weight decay to.
         self.rgb_stream = TSMResNet(
             num_classes=num_classes,
             num_frames=num_frames,
@@ -43,6 +47,8 @@ class TSMTwoStream(nn.Module):
             dropout_p=0.0,
             fold_div=fold_div,
         )
+        self.rgb_stream.fc = nn.Identity()
+        self.diff_stream.fc = nn.Identity()
 
         feature_dim = 512  # ResNet18 output
         self.dropout = nn.Dropout(p=dropout_p)

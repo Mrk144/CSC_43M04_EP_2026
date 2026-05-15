@@ -1,0 +1,26 @@
+# @package _global_
+# Track B phase 2: full InternVideo2 finetune, resuming phase-1 head weights.
+# Pass --training.resume_from=<phase1.pt>.
+defaults:
+  - override /model: internvideo2
+
+model:
+  freeze_backbone: false
+  num_frames: 8
+
+training:
+  batch_size: 4
+  lr: 1e-5
+  epochs: 10
+  warmup_epochs: 1
+  num_workers: 12
+
+  resume_model_only: true
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

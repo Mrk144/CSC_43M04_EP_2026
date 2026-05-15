@@ -1,6 +1,11 @@
 # @package _global_
+# Temporal-Shift-Module ResNet18.
+# ``num_frames``: internal T used by the temporal shift. Default 7 = Track A
+# (one interpolated frame between each of the 4 raw frames -> 4 + 3 = 7).
+# Set to 0 to fall back to the dataset's num_frames.
 model:
   name: tsm_resnet
   pretrained: false
   num_classes: ${num_classes}
   dropout: 0.5
+  num_frames: 7

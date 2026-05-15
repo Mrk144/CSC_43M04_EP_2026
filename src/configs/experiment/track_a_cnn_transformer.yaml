@@ -1,0 +1,35 @@
+# @package _global_
+# Track A: hybrid CNN-Transformer (ResNet-18 per frame + 4-block transformer).
+# From-scratch, 7 frames interpolated inside the model.
+# Recipe tuned for a small dataset:
+#   - AdamW with high weight decay (0.05) -- transformer-style training,
+#     but BN/LN and biases are auto-excluded by build_param_groups.
+#   - Linear warmup 3 epochs, then cosine decay over the remaining epochs.
+#   - Label smoothing 0.1 to soften the 33-way classification.
+#   - Drop-path 0.1 and dropout 0.1 to regularise the transformer head.
+defaults:
+  - override /model: cnn_transformer
+
+model:
+  num_frames: 7
+  spatial_tokens_side: 1
+  num_layers: 4
+  num_heads: 8
+  mlp_ratio: 2.0
+  dropout: 0.1
+  drop_path: 0.1
+
+training:
+  batch_size: 64
+  lr: 3e-4
+  epochs: 50
+  warmup_epochs: 3
+  num_workers: 12
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

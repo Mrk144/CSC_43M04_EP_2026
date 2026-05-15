@@ -1,6 +1,10 @@
 # @package _global_
-# Frame CNN + temporal average pooling (Track A: pretrained=false, Track B: pretrained=true)
+# Frame CNN + temporal average pooling.
+# ``num_frames`` is the internal temporal length the backbone operates on.
+# 0 = no interpolation (use raw T from the dataset). Experiments override this:
+# Track A => 7, Track B => 16.
 model:
   name: cnn_baseline
   pretrained: true
   num_classes: ${num_classes}
+  num_frames: 0

@@ -4,9 +4,12 @@
 #   - MCG-NJU/videomae-base-finetuned-ssv2 (recommended, closest to this task)
 #   - MCG-NJU/videomae-base-finetuned-kinetics
 #   - MCG-NJU/videomae-large-finetuned-kinetics (heavy)
+# ``num_frames`` must match the VideoMAE positional embeddings (16 for the
+# base variants). Interpolation from raw 4 frames is done inside the model.
 model:
   name: videomae
   variant: MCG-NJU/videomae-base-finetuned-ssv2
   pretrained: true
   num_classes: ${num_classes}
   freeze_backbone: false
+  num_frames: 16

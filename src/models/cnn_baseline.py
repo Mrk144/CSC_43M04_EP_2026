@@ -17,15 +17,23 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
+from models.temporal_utils import temporal_interpolate
+
 
 class CNNBaseline(nn.Module):
-    def __init__(self, num_classes: int, pretrained: bool = False) -> None:
+    def __init__(
+        self,
+        num_classes: int,
+        pretrained: bool = False,
+        num_frames: int = 0,
+    ) -> None:
         super().__init__()
+        self.num_frames = int(num_frames)
+
         weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
         backbone = models.resnet18(weights=weights)
 
-        # Replace the original 1000-way ImageNet head with identity; we add our own layer.
-        feature_dim = backbone.fc.in_features  # 512 for ResNet18
+        feature_dim = backbone.fc.in_features
         backbone.fc = nn.Identity()
 
         self.backbone = backbone
@@ -36,6 +44,8 @@ class CNNBaseline(nn.Module):
         video_batch: (batch_size, T, C, H, W)
         returns logits: (batch_size, num_classes)
         """
+        if self.num_frames > 0:
+            video_batch = temporal_interpolate(video_batch, self.num_frames)
         batch_size, num_frames, channels, height, width = video_batch.shape
 
         # Merge batch and time so the CNN runs frame-wise: (B*T, C, H, W)

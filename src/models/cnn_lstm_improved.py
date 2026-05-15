@@ -13,6 +13,7 @@ import torch.nn.init as init
 from torchvision import models
 
 from models.cnn_lstm import AttentionPool1d
+from models.temporal_utils import temporal_interpolate
 
 
 class CNNLSTMImproved(nn.Module):
@@ -22,8 +23,10 @@ class CNNLSTMImproved(nn.Module):
         pretrained: bool = False,
         lstm_hidden_size: int = 256,
         dropout_p: float = 0.5,
+        num_frames: int = 0,
     ) -> None:
         super().__init__()
+        self.num_frames = int(num_frames)
 
         weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
         backbone = models.resnet18(weights=weights)
@@ -77,6 +80,8 @@ class CNNLSTMImproved(nn.Module):
                     init.constant_(m.bias, 0)
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
+        if self.num_frames > 0:
+            video_batch = temporal_interpolate(video_batch, self.num_frames)
         b, t, c, h, w = video_batch.shape
         frames = video_batch.reshape(b * t, c, h, w)
 

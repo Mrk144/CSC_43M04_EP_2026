@@ -1,0 +1,16 @@
+# @package _global_
+# PyTorchVideo X3D 3D-CNN backbone (Kinetics-400 pretrained).
+# Variants (T x H x W):
+#   x3d_xs  (4   x 182 x 182)
+#   x3d_s   (13  x 182 x 182)
+#   x3d_m   (16  x 224 x 224)  <- default, best fit at 224
+#   x3d_l   (16  x 312 x 312)
+# Set num_frames / input_size to 0 to use the variant's recommended values.
+model:
+  name: x3d
+  variant: x3d_m
+  pretrained: true
+  num_classes: ${num_classes}
+  freeze_backbone: false
+  num_frames: 0
+  input_size: 0

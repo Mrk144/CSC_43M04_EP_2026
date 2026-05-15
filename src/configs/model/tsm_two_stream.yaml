@@ -1,7 +1,11 @@
 # @package _global_
-# Two-stream TSM-ResNet18: one branch on RGB, one on frame differences.
+# Two-stream TSM-ResNet18 (RGB + frame-difference).
+# ``num_frames``: internal T (Track A default = 7, one interpolated frame
+# between each of the 4 raw frames). Frame diff is computed on the raw 4
+# frames *before* each TSM stream upsamples internally to num_frames.
 model:
   name: tsm_two_stream
   pretrained: false
   num_classes: ${num_classes}
   dropout: 0.5
+  num_frames: 7

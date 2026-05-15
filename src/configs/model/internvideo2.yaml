@@ -1,0 +1,16 @@
+# @package _global_
+# InternVideo2 (OpenGVLab) stage-2 encoder + linear classifier.
+# Loaded via HuggingFace with trust_remote_code=True.
+# Variants:
+#   OpenGVLab/InternVideo2-Stage2_1B-224p-f8 (default, 1B params, 8-frame clips)
+#   OpenGVLab/InternVideo2-Stage2_1B-224p-f4 (4-frame variant, faster)
+#   OpenGVLab/InternVideo2-Stage2_6B-224p-f4 (6B params, very heavy)
+model:
+  name: internvideo2
+  variant: OpenGVLab/InternVideo2-Stage2_1B-224p-f8
+  pretrained: true
+  num_classes: ${num_classes}
+  freeze_backbone: false
+  num_frames: 8
+  input_size: 224
+  dropout: 0.1

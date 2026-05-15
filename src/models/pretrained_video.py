@@ -30,6 +30,8 @@ import torch
 import torch.nn as nn
 from torchvision.models import video as tv_video
 
+from models.temporal_utils import temporal_interpolate
+
 
 def _build_r3d_18(num_classes: int, pretrained: bool) -> nn.Module:
     weights = tv_video.R3D_18_Weights.KINETICS400_V1 if pretrained else None
@@ -140,6 +142,7 @@ class PretrainedVideoModel(nn.Module):
         num_classes: int,
         pretrained: bool = True,
         freeze_backbone: bool = False,
+        num_frames: int = 16,
     ) -> None:
         super().__init__()
         if backbone not in _REGISTRY:
@@ -148,10 +151,19 @@ class PretrainedVideoModel(nn.Module):
                 f"Available: {available_backbones()}"
             )
         self.backbone_name = backbone
+        self.num_frames = int(num_frames)
         self.net = _REGISTRY[backbone](num_classes, pretrained)
 
         if freeze_backbone:
-            self._freeze_all_but_head()
+            self.freeze_backbone()
+
+    def freeze_backbone(self) -> None:
+        """Public alias matching the API of the foundation-model wrappers."""
+        self._freeze_all_but_head()
+
+    def unfreeze_backbone(self) -> None:
+        for p in self.net.parameters():
+            p.requires_grad = True
 
     def _freeze_all_but_head(self) -> None:
         for p in self.net.parameters():
@@ -175,6 +187,8 @@ class PretrainedVideoModel(nn.Module):
                 p.requires_grad = True
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
+        if self.num_frames > 0:
+            video_batch = temporal_interpolate(video_batch, self.num_frames)
         x = video_batch.permute(0, 2, 1, 3, 4).contiguous()
         out = self.net(x)
         if out.dim() > 2:

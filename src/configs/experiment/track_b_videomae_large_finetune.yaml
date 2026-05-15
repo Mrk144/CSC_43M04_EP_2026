@@ -1,0 +1,27 @@
+# @package _global_
+# Track B phase 2: full VideoMAE-Large (Kinetics) finetune. Pass
+# --training.resume_from=<phase1.pt>.
+defaults:
+  - override /model: videomae
+
+model:
+  variant: MCG-NJU/videomae-large-finetuned-kinetics
+  freeze_backbone: false
+  num_frames: 16
+
+training:
+  batch_size: 2
+  lr: 1e-5
+  epochs: 10
+  warmup_epochs: 1
+  num_workers: 12
+
+  resume_model_only: true
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

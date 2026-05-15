@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
+from models.temporal_utils import temporal_interpolate
+
 
 def temporal_shift(x: torch.Tensor, num_frames: int, fold_div: int = 8) -> torch.Tensor:
     """Shift a fraction of channels along the temporal axis.
@@ -117,14 +119,16 @@ class TSMResNet(nn.Module):
         nn.init.constant_(self.fc.bias, 0)
 
     def encode(self, video_batch: torch.Tensor) -> torch.Tensor:
-        """Return temporally pooled features ``(B, feature_dim)``."""
+        """Return temporally pooled features ``(B, feature_dim)``.
+
+        Input ``T`` may differ from ``self.num_frames`` (e.g. raw 4 frames at
+        inference time): we linearly interpolate along the temporal axis so
+        the backbone always sees ``self.num_frames`` frames.
+        """
+        video_batch = temporal_interpolate(video_batch, self.num_frames)
         b, t, c, h, w = video_batch.shape
-        if t != self.num_frames:
-            raise ValueError(
-                f"TSMResNet expects num_frames={self.num_frames} but got T={t}"
-            )
         x = video_batch.reshape(b * t, c, h, w)
-        feats = self.backbone(x)  # (B*T, feature_dim)
+        feats = self.backbone(x)
         feats = feats.view(b, t, -1).mean(dim=1)
         return feats
 

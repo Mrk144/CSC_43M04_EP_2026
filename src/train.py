@@ -32,26 +32,43 @@ from losses import FocalLossWithSmoothing
 from models.cnn_baseline import CNNBaseline
 from models.cnn_lstm import CNNLSTM
 from models.cnn_lstm_improved import CNNLSTMImproved
+from models.cnn_transformer import CNNTransformer
+from models.internvideo import InternVideo2Classifier
 from models.pretrained_video import PretrainedVideoModel
 from models.tsm_resnet import TSMResNet
 from models.tsm_two_stream import TSMTwoStream
 from models.videomae import VideoMAEClassifier
+from models.vjepa2 import VJEPA2Classifier
+from models.x3d import X3DClassifier
 from utils import build_transforms, set_seed, split_train_val
 
 
 def build_model(cfg: DictConfig) -> nn.Module:
-    """Create the model described by cfg.model.name."""
+    """Create the model described by ``cfg.model.name``.
+
+    ``cfg.model.num_frames`` controls the *internal* temporal resolution the
+    backbone operates on (Track A => 7, Track B => 16). The model itself
+    interpolates the input from ``T_raw`` (whatever the dataset serves, 4 in
+    our case) to that target inside its forward pass, so the saved ``.pt`` is
+    self-contained.
+    """
     name = cfg.model.name
     num_classes = cfg.model.num_classes
     pretrained = cfg.model.pretrained
+    model_num_frames = int(cfg.model.get("num_frames", 0))
 
     if name == "cnn_baseline":
-        return CNNBaseline(num_classes=num_classes, pretrained=pretrained)
+        return CNNBaseline(
+            num_classes=num_classes,
+            pretrained=pretrained,
+            num_frames=model_num_frames,
+        )
     if name == "cnn_lstm":
         return CNNLSTM(
             num_classes=num_classes,
             pretrained=pretrained,
             lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
+            num_frames=model_num_frames,
         )
     if name == "cnn_lstm_improved":
         return CNNLSTMImproved(
@@ -59,34 +76,94 @@ def build_model(cfg: DictConfig) -> nn.Module:
             pretrained=pretrained,
             lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
             dropout_p=float(cfg.model.get("dropout", 0.5)),
+            num_frames=model_num_frames,
+        )
+    if name == "cnn_transformer":
+        ct_frames = model_num_frames if model_num_frames > 0 else 7
+        return CNNTransformer(
+            num_classes=num_classes,
+            pretrained=pretrained,
+            num_frames=ct_frames,
+            spatial_tokens_side=int(cfg.model.get("spatial_tokens_side", 1)),
+            d_model=int(cfg.model.get("d_model", 512)),
+            num_layers=int(cfg.model.get("num_layers", 4)),
+            num_heads=int(cfg.model.get("num_heads", 8)),
+            mlp_ratio=float(cfg.model.get("mlp_ratio", 2.0)),
+            dropout=float(cfg.model.get("dropout", 0.1)),
+            attn_dropout=float(cfg.model.get("attn_dropout", 0.0)),
+            drop_path=float(cfg.model.get("drop_path", 0.1)),
         )
     if name == "tsm_resnet":
+        tsm_frames = model_num_frames if model_num_frames > 0 else int(
+            cfg.dataset.num_frames
+        )
         return TSMResNet(
             num_classes=num_classes,
-            num_frames=int(cfg.dataset.num_frames),
+            num_frames=tsm_frames,
             pretrained=pretrained,
             dropout_p=float(cfg.model.get("dropout", 0.5)),
         )
     if name == "tsm_two_stream":
+        tsm_frames = model_num_frames if model_num_frames > 0 else int(
+            cfg.dataset.num_frames
+        )
         return TSMTwoStream(
             num_classes=num_classes,
-            num_frames=int(cfg.dataset.num_frames),
+            num_frames=tsm_frames,
             pretrained=pretrained,
             dropout_p=float(cfg.model.get("dropout", 0.5)),
         )
     if name == "pretrained_video":
+        pv_frames = model_num_frames if model_num_frames > 0 else 16
         return PretrainedVideoModel(
             backbone=str(cfg.model.backbone),
             num_classes=num_classes,
             pretrained=pretrained,
             freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
+            num_frames=pv_frames,
         )
     if name == "videomae":
+        vm_frames = model_num_frames if model_num_frames > 0 else 16
         return VideoMAEClassifier(
             variant=str(cfg.model.get("variant", "MCG-NJU/videomae-base-finetuned-ssv2")),
             num_classes=num_classes,
             pretrained=pretrained,
             freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
+            num_frames=vm_frames,
+        )
+    if name == "vjepa2":
+        vj_frames = model_num_frames if model_num_frames > 0 else 16
+        return VJEPA2Classifier(
+            variant=str(cfg.model.get("variant", "facebook/vjepa2-vitl-fpc16-256")),
+            num_classes=num_classes,
+            pretrained=pretrained,
+            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
+            num_frames=vj_frames,
+            input_size=int(cfg.model.get("input_size", 256)),
+            dropout_p=float(cfg.model.get("dropout", 0.1)),
+        )
+    if name == "internvideo2":
+        iv_frames = model_num_frames if model_num_frames > 0 else 8
+        return InternVideo2Classifier(
+            variant=str(
+                cfg.model.get("variant", "OpenGVLab/InternVideo2-Stage2_1B-224p-f8")
+            ),
+            num_classes=num_classes,
+            pretrained=pretrained,
+            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
+            num_frames=iv_frames,
+            input_size=int(cfg.model.get("input_size", 224)),
+            dropout_p=float(cfg.model.get("dropout", 0.1)),
+        )
+    if name == "x3d":
+        x3d_frames = model_num_frames if model_num_frames > 0 else 0
+        return X3DClassifier(
+            variant=str(cfg.model.get("variant", "x3d_m")),
+            num_classes=num_classes,
+            pretrained=pretrained,
+            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
+            num_frames=x3d_frames,
+            input_size=int(cfg.model.get("input_size", 0)),
         )
 
     raise ValueError(f"Unknown model.name: {name}")
@@ -321,8 +398,16 @@ def main(cfg: DictConfig) -> None:
         if resume_path.exists():
             mode = "model only" if resume_model_only else "full state"
             print(f"Resuming training from ({mode}): {resume_path}")
-            checkpoint = torch.load(resume_path, map_location=device)
-            model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            checkpoint = torch.load(
+                resume_path, map_location=device, weights_only=False
+            )
+            # For a full resume the architecture must match exactly: catch any
+            # mismatch loudly instead of silently dropping params. For model-only
+            # (two-phase) loads we keep ``strict=False`` because the new
+            # classifier head intentionally differs from the pretrained shape.
+            model.load_state_dict(
+                checkpoint["model_state_dict"], strict=not resume_model_only
+            )
             if not resume_model_only:
                 optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
                 scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
@@ -372,6 +457,7 @@ def main(cfg: DictConfig) -> None:
                 "num_classes": int(cfg.model.num_classes),
                 "pretrained": bool(cfg.model.pretrained),
                 "num_frames": int(cfg.dataset.num_frames),
+                "model_num_frames": int(cfg.model.get("num_frames", 0)),
                 "val_accuracy": val_acc,
                 "config": OmegaConf.to_container(cfg, resolve=True),
             }

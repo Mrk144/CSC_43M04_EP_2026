@@ -3,9 +3,11 @@
 # See src/models/pretrained_video.py for the list of available backbones:
 #   r3d_18, mc3_18, r2plus1d_18, s3d,
 #   mvit_v1_b, mvit_v2_s, swin3d_t, swin3d_s, swin3d_b
+# ``num_frames``: internal T the backbone sees (Kinetics models trained at 16).
 model:
   name: pretrained_video
   backbone: r2plus1d_18
   pretrained: true
   num_classes: ${num_classes}
   freeze_backbone: false
+  num_frames: 16

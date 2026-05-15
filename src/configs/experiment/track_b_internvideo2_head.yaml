@@ -1,13 +1,11 @@
 # @package _global_
-# Track B phase 1: linear probing (head only) on VideoMAE SSv2-pretrained backbone.
-# Dataset serves the raw 4 frames; the VideoMAE wrapper interpolates to 16
-# internally (matching its positional embeddings).
+# Track B phase 1: linear probing on InternVideo2 stage-2 (head only).
 defaults:
-  - override /model: videomae
+  - override /model: internvideo2
 
 model:
   freeze_backbone: true
-  num_frames: 16
+  num_frames: 8
 
 training:
   batch_size: 8

@@ -1,16 +1,16 @@
 # @package _global_
-# Track B phase 1: linear probing (head only) on VideoMAE SSv2-pretrained backbone.
-# Dataset serves the raw 4 frames; the VideoMAE wrapper interpolates to 16
-# internally (matching its positional embeddings).
+# Track B phase 1: linear probing on PyTorchVideo X3D-M (Kinetics-pretrained).
 defaults:
-  - override /model: videomae
+  - override /model: x3d
 
 model:
   freeze_backbone: true
+  variant: x3d_m
   num_frames: 16
+  input_size: 224
 
 training:
-  batch_size: 8
+  batch_size: 16
   lr: 1e-3
   epochs: 5
   warmup_epochs: 1

@@ -110,3 +110,54 @@ def split_train_val(
         val_samples = val_samples[-1:]
 
     return train_samples, val_samples
+
+
+def count_class_frequencies(
+    samples: List[Tuple[Path, int]],
+    num_classes: int,
+) -> torch.Tensor:
+    """Histogram of training labels (float64 tensor of shape [num_classes])."""
+    counts = torch.zeros(num_classes, dtype=torch.float64)
+    for _path, label in samples:
+        if not (0 <= label < num_classes):
+            raise ValueError(
+                f"label {label} out of range [0, {num_classes}) for "
+                f"{len(samples)} train samples"
+            )
+        counts[label] += 1.0
+    return counts
+
+
+def class_weights_from_counts(
+    counts: torch.Tensor,
+    mode: str = "inverse_freq",
+    beta: float = 0.9999,
+) -> torch.Tensor:
+    """Per-class weights for ``CrossEntropyLoss`` (mean-normalized float32 vector).
+
+    - ``inverse_freq``: sklearn "balanced" style,
+      w_c = N / (C * max(n_c, 1)) with N the sum of clamped counts.
+    - ``effective_num``: Class-Balanced effective number (Cui et al.) on counts
+      clamped to at least 1, then w_c proportional to 1 / E_c, mean-normalized.
+    """
+    if mode == "effective_num" and not (0.0 < beta < 1.0):
+        raise ValueError(
+            "class_weights beta must be in (0, 1) for effective_num mode"
+        )
+
+    counts = counts.to(dtype=torch.float64)
+    safe = torch.clamp(counts, min=1.0)
+    if mode == "inverse_freq":
+        n = safe.sum()
+        w = n / (float(safe.numel()) * safe)
+    elif mode == "effective_num":
+        b = torch.tensor(beta, dtype=torch.float64)
+        eff_n = (1.0 - b.pow(safe)) / (1.0 - b)
+        w = 1.0 / eff_n
+    else:
+        raise ValueError(
+            f"Unknown class_weights_mode {mode!r}; "
+            f"expected 'inverse_freq' or 'effective_num'"
+        )
+    w = w / w.mean()
+    return w.float()

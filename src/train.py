@@ -40,7 +40,13 @@ from models.tsm_two_stream import TSMTwoStream
 from models.videomae import VideoMAEClassifier
 from models.vjepa2 import VJEPA2Classifier
 from models.x3d import X3DClassifier
-from utils import build_transforms, set_seed, split_train_val
+from utils import (
+    build_transforms,
+    class_weights_from_counts,
+    count_class_frequencies,
+    set_seed,
+    split_train_val,
+)
 
 
 def build_model(cfg: DictConfig) -> nn.Module:
@@ -169,19 +175,78 @@ def build_model(cfg: DictConfig) -> nn.Module:
     raise ValueError(f"Unknown model.name: {name}")
 
 
-def build_loss(cfg: DictConfig) -> nn.Module:
+def _resolve_class_weights_for_training(
+    cfg: DictConfig,
+    train_samples: list[tuple[Path, int]],
+    num_classes: int,
+) -> torch.Tensor | None:
+    """Build optional per-class weights from ``cfg.training.loss.class_weights``."""
+    loss_cfg = cfg.training.get("loss", {}) or {}
+    spec = loss_cfg.get("class_weights", None)
+    if spec is None:
+        return None
+
+    loss_name = loss_cfg.get("name", "cross_entropy")
+    if loss_name != "cross_entropy":
+        print(
+            "training.loss.class_weights is ignored when loss name is not "
+            "cross_entropy (focal_loss has no class weighting yet)."
+        )
+        return None
+
+    if spec == "auto":
+        mode = str(loss_cfg.get("class_weights_mode", "inverse_freq"))
+        beta = float(loss_cfg.get("class_weights_beta", 0.9999))
+        counts = count_class_frequencies(train_samples, num_classes)
+        weights = class_weights_from_counts(counts, mode=mode, beta=beta)
+        zeros = int((counts == 0).sum().item())
+        print(
+            f"Class weights (auto, mode={mode}): "
+            f"min={weights.min().item():.4f} max={weights.max().item():.4f}; "
+            f"classes with 0 train samples: {zeros}"
+        )
+        print(f"Per-class train counts: {counts.long().tolist()}")
+        return weights
+
+    if OmegaConf.is_list(spec) or isinstance(spec, (list, tuple)):
+        w = torch.tensor(list(spec), dtype=torch.float32)
+    else:
+        raise ValueError(
+            f"training.loss.class_weights must be null, 'auto', or a list; "
+            f"got {spec!r}"
+        )
+    if w.numel() != num_classes:
+        raise ValueError(
+            f"class_weights length {w.numel()} != num_classes {num_classes}"
+        )
+    return w
+
+
+def build_loss(
+    cfg: DictConfig,
+    class_weights: torch.Tensor | None = None,
+) -> nn.Module:
     """Pick the training loss from cfg.training.loss.
 
     Default: ``CrossEntropyLoss(label_smoothing=0.1)``. Setting
     ``training.loss.name = "focal_loss"`` switches to the focal variant.
+    Optional ``class_weights`` are applied only for cross-entropy.
     """
     loss_cfg = cfg.training.get("loss", {}) or {}
     name = loss_cfg.get("name", "cross_entropy")
     label_smoothing = float(loss_cfg.get("label_smoothing", 0.1))
     if name == "focal_loss":
+        if class_weights is not None:
+            print(
+                "Ignoring class_weights: FocalLossWithSmoothing does not support "
+                "per-class weights in this codebase."
+            )
         gamma = float(loss_cfg.get("gamma", 2.0))
         return FocalLossWithSmoothing(smoothing=label_smoothing, gamma=gamma)
-    return nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    ce_kwargs: Dict[str, Any] = {"label_smoothing": label_smoothing}
+    if class_weights is not None:
+        ce_kwargs["weight"] = class_weights
+    return nn.CrossEntropyLoss(**ce_kwargs)
 
 
 def build_param_groups(model: nn.Module, weight_decay: float) -> list[dict]:
@@ -363,9 +428,15 @@ def main(cfg: DictConfig) -> None:
         pin_memory=(device.type == "cuda"),
     )
 
+    num_classes = int(cfg.model.num_classes)
+    class_weights_tensor = _resolve_class_weights_for_training(
+        cfg, train_samples, num_classes
+    )
+
     model = build_model(cfg).to(device)
 
-    loss_fn = build_loss(cfg)
+    loss_fn = build_loss(cfg, class_weights_tensor)
+    loss_fn = loss_fn.to(device)
 
     opt_name = cfg.training.get("optimizer", {}).get("name", "adamw")
     lr = float(cfg.training.lr)

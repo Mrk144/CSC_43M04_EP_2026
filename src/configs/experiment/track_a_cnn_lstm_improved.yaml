@@ -1,0 +1,24 @@
+# @package _global_
+# Track A: CNN-LSTM improved (BiLSTM + attention), 7 frames via interpolation.
+defaults:
+  - override /model: cnn_lstm_improved
+
+model:
+  num_frames: 7
+  lstm_hidden_size: 128
+  dropout: 0.5
+
+training:
+  batch_size: 64
+  lr: 3e-4
+  epochs: 50
+  warmup_epochs: 3
+  num_workers: 12
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

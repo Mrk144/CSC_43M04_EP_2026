@@ -1,0 +1,14 @@
+# @package _global_
+# Per-class precision / recall and row-normalized confusion (P(pred=j | true=i)).
+#
+# Run from src/:
+#   python class_report.py +report=default
+#   python class_report.py +report=default 'report.models=[{name:tsm,checkpoint:/path/best.pt}]'
+#
+# output_dir: null -> no CSV files; set to a path to write metrics + confusion exports.
+report:
+  top_confusions: 5
+  output_dir: null
+  models:
+    - name: example_model
+      checkpoint: ${hydra:runtime.cwd}/outputs/REPLACE_ME/best_model.pt

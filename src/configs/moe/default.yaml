@@ -1,0 +1,29 @@
+# @package _global_
+# Mixture-of-experts (logit-level): load several checkpoints, combine on validation.
+#
+# Run from src/:
+#   python moe_evaluate.py +moe=default
+#   python moe_evaluate.py +moe=default moe.combination=learned_ce
+#
+# combination:
+#   - mean              : moyenne uniforme des logits
+#   - val_acc           : moyenne pondérée ~ top-1 val de chaque expert
+#   - learned_ce        : poids appris sur le val (softmax sur R^K, minimise CE) — souvent le plus fort
+#   - weighted          : moyenne avec moe.weights (liste de longueur K)
+#
+moe:
+  experts:
+    - name: tsm
+      checkpoint: ${hydra:runtime.cwd}/outputs/REPLACE_ME_1/best_model.pt
+    - name: cnn_tr
+      checkpoint: ${hydra:runtime.cwd}/outputs/REPLACE_ME_2/best_model.pt
+
+  combination: learned_ce
+  weights: null
+
+  # Grille de température par expert (NLL sur le val) avant mélange — recommandé si les échelles de logits diffèrent
+  calibrate_temperature: true
+
+  learned:
+    steps: 400
+    lr: 0.07

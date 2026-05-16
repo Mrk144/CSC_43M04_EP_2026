@@ -1,5 +1,5 @@
 # @package _global_
-# Track B phase 1: linear probing on V-JEPA2 (head only).
+# Track B phase 1: linear probing on V-JEPA2 SSv2 fine-tuned (head only).
 # The encoder is frozen; only the new linear classifier is trained.
 defaults:
   - override /model: vjepa2

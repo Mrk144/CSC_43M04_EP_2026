@@ -140,10 +140,15 @@ def build_model(cfg: DictConfig) -> nn.Module:
     if name == "vjepa2":
         vj_frames = model_num_frames if model_num_frames > 0 else 16
         return VJEPA2Classifier(
-            variant=str(cfg.model.get("variant", "facebook/vjepa2-vitl-fpc16-256")),
+            variant=str(
+                cfg.model.get("variant", "facebook/vjepa2-vitl-fpc16-256-ssv2")
+            ),
             num_classes=num_classes,
             pretrained=pretrained,
             freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
+            ignore_mismatched_sizes=bool(
+                cfg.model.get("ignore_mismatched_sizes", True)
+            ),
             num_frames=vj_frames,
             input_size=int(cfg.model.get("input_size", 256)),
             dropout_p=float(cfg.model.get("dropout", 0.1)),

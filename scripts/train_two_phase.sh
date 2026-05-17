@@ -11,10 +11,8 @@
 #
 # Supported tags out of the box:
 #   videomae              VideoMAE-Base SSv2-finetuned (HuggingFace)
-#   videomae_large        VideoMAE-Large K400-finetuned
 #   vjepa2                V-JEPA2 ViT-L (Meta)
 #   internvideo2          InternVideo2 stage-2 1B (OpenGVLab, trust_remote_code)
-#   x3d                   PyTorchVideo X3D-M (Kinetics)
 #
 # Optional overrides forwarded to BOTH phases:
 #   TRAIN_EXTRA_ARGS="training.num_workers=8 dataset.max_samples=2000" \
@@ -24,7 +22,7 @@ set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <model_tag>" >&2
-    echo "  e.g. $0 videomae | vjepa2 | internvideo2 | x3d | videomae_large" >&2
+    echo "  e.g. $0 videomae | vjepa2 | internvideo2" >&2
     exit 1
 fi
 

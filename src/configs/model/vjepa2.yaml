@@ -14,3 +14,4 @@ model:
   num_frames: 16
   input_size: 256
   dropout: 0.1
+  ignore_mismatched_sizes: true

@@ -1,17 +1,16 @@
 # @package _global_
-# Précision / rappel par classe + matrice de confusion (val).
+# 4 modèles → UN seul CSV d'ensemble (vote majoritaire).
 #
 # Depuis la racine :
-#   python src/class_report.py +report=default
+#   python src/create_submission.py +submission=multi_four_models
 #
-# CSV dans processed_data/val2/reports/ si output_dir est défini.
+# Fichier produit : processed_data/val2/submission.csv
 
 dataset:
-  val_dir: ${hydra:runtime.cwd}/processed_data/val2/val
+  test_dir: ${hydra:runtime.cwd}/processed_data/val2/test
+  submission_output: ${hydra:runtime.cwd}/processed_data/val2/submission.csv
 
-report:
-  top_confusions: 5
-  output_dir: ${hydra:runtime.cwd}/processed_data/val2/reports
+submission:
   models:
     - name: cnn_lstm
       checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_02-06-19/best_model.pt
@@ -21,3 +20,8 @@ report:
       checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_12-44-38/best_model.pt
     - name: tsm_two_stream
       checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_14-41-02/best_model.pt
+
+  output_csv: ${hydra:runtime.cwd}/processed_data/val2/submission.csv
+  output_format: simple
+  ensemble_column: majority
+  write_per_model: false

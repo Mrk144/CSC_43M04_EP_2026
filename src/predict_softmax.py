@@ -25,11 +25,8 @@ import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from create_submission import (
-    _index_video_folders,
-    build_model_from_checkpoint,
-    discover_all_test_videos,
-)
+from create_submission import _index_video_folders, discover_all_test_videos
+from evaluate import load_model_from_checkpoint
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
 from utils import build_transforms, set_seed
 
@@ -93,9 +90,7 @@ def main(cfg: DictConfig) -> None:
     ckpt: Dict[str, Any] = torch.load(
         checkpoint_path, map_location="cpu", weights_only=False
     )
-    model = build_model_from_checkpoint(ckpt)
-    model.load_state_dict(ckpt["model_state_dict"], strict=True)
-    model.to(device)
+    model = load_model_from_checkpoint(ckpt, device)
 
     num_frames = int(ckpt.get("num_frames", cfg.dataset.num_frames))
     pretrained = bool(ckpt.get("pretrained", cfg.model.pretrained))

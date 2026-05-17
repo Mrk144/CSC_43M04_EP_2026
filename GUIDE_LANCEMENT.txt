@@ -167,10 +167,8 @@ Script depuis la RACINE du dépôt :
   chmod +x scripts/train_two_phase.sh
 
   ./scripts/train_two_phase.sh videomae
-  ./scripts/train_two_phase.sh videomae_large
   ./scripts/train_two_phase.sh vjepa2
   ./scripts/train_two_phase.sh internvideo2
-  ./scripts/train_two_phase.sh x3d
 
 Équivalent VideoMAE seul :
 
@@ -187,10 +185,8 @@ TABLE récapitulative phase 1 (head) / phase 2 (finetune) :
   tag            | phase 1 experiment              | bs  | lr    | ep | phase 2 experiment               | bs | lr    | ep
   ---------------+---------------------------------+-----+-------+----+----------------------------------+----+-------+----
   videomae       | track_b_videomae_head           | 8   | 1e-3  | 5  | track_b_videomae_finetune        | 8  | 2e-5  | 10
-  videomae_large | track_b_videomae_large_head     | 4   | 1e-3  | 5  | track_b_videomae_large_finetune  | 2  | 1e-5  | 10
   vjepa2         | track_b_vjepa2_head             | 8   | 1e-3  | 5  | track_b_vjepa2_finetune          | 4  | 1e-5  | 10
   internvideo2   | track_b_internvideo2_head       | 8   | 1e-3  | 5  | track_b_internvideo2_finetune    | 4  | 1e-5  | 10
-  x3d            | track_b_x3d_head                | 16  | 1e-3  | 5  | track_b_x3d_finetune             | 8  | 5e-5  | 15
 
 Phase 2 nécessite le checkpoint phase 1 : le script place resume_from automatiquement.
 Manuel phase 2 :
@@ -218,9 +214,6 @@ Variantes / pistes utiles :
 
   # V-JEPA2 / InternVideo2 : input_size dans configs/model/
   python train.py experiment=track_b_vjepa2_head model.input_size=256
-
-  # X3D plus petit (4 frames natifs, 182x182 recommandé)
-  python train.py experiment=track_b_x3d_head model.variant=x3d_xs model.num_frames=4 model.input_size=182
 
 
 --------------------------------------------------------------------------------
@@ -299,10 +292,9 @@ Méthodes :
 8. VRAM (~20 Go) — PARAMÈTRES À AJUSTER
 --------------------------------------------------------------------------------
 
-  • Réduire training.batch_size (phase 2 VideoMAE large : déjà 2).
-  • foundation models : batch 4 → 2 → 1
+  • Réduire training.batch_size (foundation models : 8 → 4 → 2 → 1).
   • track_a_best batch 64 → 32 ou 16
-  • model.variant plus léger (VideoMAE base vs large ; x3d_xs vs x3d_m)
+  • model.variant Kinetics au lieu de SSv2 si besoin (moins adapté à la tâche)
   • dataset.max_samples pour valider le pipeline sans saturer la mémoire
 
 

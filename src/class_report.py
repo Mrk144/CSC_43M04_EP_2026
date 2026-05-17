@@ -28,7 +28,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
-from evaluate import load_model_from_checkpoint
+from checkpoint_utils import load_model_from_checkpoint
 from utils import build_transforms, set_seed
 
 

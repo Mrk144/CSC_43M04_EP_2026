@@ -1,0 +1,12 @@
+# @package _global_
+# Génère des groupes de classes confondues à partir d'un confusion_counts_*.csv
+#
+#   python src/build_confusion_groups.py +build_confusion_groups=default
+
+build:
+  confusion_csv: ${hydra:runtime.cwd}/processed_data/val2/reports/confusion_counts_tsm_resnet.csv
+  output_yaml: ${hydra:runtime.cwd}/src/configs/confusion_groups/from_tsm_resnet.yaml
+  val_dir: ${hydra:runtime.cwd}/processed_data/val2/val
+  min_rate: 0.10
+  min_pair_errors: 12
+  min_group_size: 2

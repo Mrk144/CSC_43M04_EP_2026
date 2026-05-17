@@ -5,8 +5,10 @@ defaults:
   - override /model: vjepa2
 
 model:
+  variant: facebook/vjepa2-vitl-fpc16-256-ssv2
   freeze_backbone: false
   num_frames: 16
+  ignore_mismatched_sizes: true
 
 training:
   batch_size: 4

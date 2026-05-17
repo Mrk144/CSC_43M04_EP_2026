@@ -7,6 +7,9 @@ training:
   # Where to save the best checkpoint (by validation accuracy)
   checkpoint_path: "best_model.pt"
   device: cuda
+  # Phase-2 / resume: load weights from a prior run (null = train from scratch / HF only)
+  resume_from: null
+  resume_model_only: false
 
   loss:
     name: cross_entropy

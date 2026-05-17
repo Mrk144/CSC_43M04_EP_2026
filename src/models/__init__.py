@@ -8,7 +8,6 @@ from models.tsm_resnet import TSMResNet
 from models.tsm_two_stream import TSMTwoStream
 from models.videomae import VideoMAEClassifier
 from models.vjepa2 import VJEPA2Classifier
-from models.x3d import X3DClassifier, available_x3d_variants
 
 __all__ = [
     "CNNBaseline",
@@ -21,7 +20,5 @@ __all__ = [
     "TSMTwoStream",
     "VideoMAEClassifier",
     "VJEPA2Classifier",
-    "X3DClassifier",
     "available_backbones",
-    "available_x3d_variants",
 ]

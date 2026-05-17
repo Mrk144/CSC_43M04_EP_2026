@@ -39,7 +39,6 @@ from models.tsm_resnet import TSMResNet
 from models.tsm_two_stream import TSMTwoStream
 from models.videomae import VideoMAEClassifier
 from models.vjepa2 import VJEPA2Classifier
-from models.x3d import X3DClassifier
 from utils import (
     build_transforms,
     class_weights_from_counts,
@@ -165,16 +164,6 @@ def build_model(cfg: DictConfig) -> nn.Module:
             num_frames=iv_frames,
             input_size=int(cfg.model.get("input_size", 224)),
             dropout_p=float(cfg.model.get("dropout", 0.1)),
-        )
-    if name == "x3d":
-        x3d_frames = model_num_frames if model_num_frames > 0 else 0
-        return X3DClassifier(
-            variant=str(cfg.model.get("variant", "x3d_m")),
-            num_classes=num_classes,
-            pretrained=pretrained,
-            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
-            num_frames=x3d_frames,
-            input_size=int(cfg.model.get("input_size", 0)),
         )
 
     raise ValueError(f"Unknown model.name: {name}")

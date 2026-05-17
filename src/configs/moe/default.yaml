@@ -1,29 +1,30 @@
 # @package _global_
-# Mixture-of-experts (logit-level): load several checkpoints, combine on validation.
+# MoE : mean | val_acc (val_acc nécessite des labels → val seulement)
 #
-# Run from src/:
-#   python moe_evaluate.py +moe=default
-#   python moe_evaluate.py +moe=default moe.combination=learned_ce
+# Éval val :
+#   python src/evaluate.py +moe=default
+#   python src/evaluate.py +moe=default moe.combination=mean
 #
-# combination:
-#   - mean              : moyenne uniforme des logits
-#   - val_acc           : moyenne pondérée ~ top-1 val de chaque expert
-#   - learned_ce        : poids appris sur le val (softmax sur R^K, minimise CE) — souvent le plus fort
-#   - weighted          : moyenne avec moe.weights (liste de longueur K)
-#
+# Soumission test :
+#   python src/create_submission.py +moe=default moe.combination=mean
+#   python src/create_submission.py +moe=default moe.combination=val_acc
+
+dataset:
+  val_dir: ${hydra:runtime.cwd}/processed_data/val2/val
+  test_dir: ${hydra:runtime.cwd}/processed_data/val2/test
+  submission_output: ${hydra:runtime.cwd}/processed_data/val2/submission_moe.csv
+
 moe:
+  output_csv: ${hydra:runtime.cwd}/processed_data/val2/submission_moe.csv
   experts:
-    - name: tsm
-      checkpoint: ${hydra:runtime.cwd}/outputs/REPLACE_ME_1/best_model.pt
-    - name: cnn_tr
-      checkpoint: ${hydra:runtime.cwd}/outputs/REPLACE_ME_2/best_model.pt
+    - name: cnn_lstm
+      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_02-06-19/best_model.pt
+    - name: cnn_transformer
+      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_03-54-59/best_model.pt
+    - name: tsm_resnet
+      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_12-44-38/best_model.pt
+    - name: tsm_two_stream
+      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_14-41-02/best_model.pt
 
-  combination: learned_ce
-  weights: null
-
-  # Grille de température par expert (NLL sur le val) avant mélange — recommandé si les échelles de logits diffèrent
+  combination: val_acc
   calibrate_temperature: true
-
-  learned:
-    steps: 400
-    lr: 0.07

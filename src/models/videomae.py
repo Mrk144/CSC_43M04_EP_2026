@@ -13,7 +13,6 @@ Variants
 --------
 - ``MCG-NJU/videomae-base-finetuned-ssv2`` (default; closest to the task)
 - ``MCG-NJU/videomae-base-finetuned-kinetics``
-- ``MCG-NJU/videomae-large-finetuned-kinetics``
 - ``MCG-NJU/videomae-base-finetuned-ssv2-fps2`` (alternative SSv2 finetune)
 
 Notes

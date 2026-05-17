@@ -15,6 +15,6 @@ training:
     name: cross_entropy
     label_smoothing: 0.1
     # null | auto | list of length model.num_classes (e.g. 33)
-    class_weights: null
+    class_weights: auto
     class_weights_mode: inverse_freq # inverse_freq | effective_num
     class_weights_beta: 0.9999 # used only for effective_num

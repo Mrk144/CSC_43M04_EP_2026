@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 from torchvision import models
 
 from models.temporal_utils import temporal_interpolate
@@ -38,6 +39,22 @@ class CNNBaseline(nn.Module):
 
         self.backbone = backbone
         self.classifier = nn.Linear(feature_dim, num_classes)
+        if not pretrained:
+            self._init_weights()
+
+    def _init_weights(self) -> None:
+        """Kaiming init for conv/BN (same recipe as TSM ResNet from scratch)."""
+        for m in self.backbone.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.ones_(m.weight)
+                init.zeros_(m.bias)
+        init.normal_(self.classifier.weight, 0.0, 0.01)
+        if self.classifier.bias is not None:
+            init.zeros_(self.classifier.bias)
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
         """

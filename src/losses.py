@@ -4,16 +4,23 @@ import torch.nn.functional as F
 
 
 class FocalLossWithSmoothing(nn.Module):
-    """Focal loss with label smoothing.
+    """Focal loss with label smoothing and optional per-class weights."""
 
-    Falls back to standard ``CrossEntropyLoss(label_smoothing=...)`` semantics
-    when ``num_classes < 2`` (avoids a division-by-zero in the smoothing term).
-    """
-
-    def __init__(self, smoothing: float = 0.1, gamma: float = 2.0) -> None:
+    def __init__(
+        self,
+        smoothing: float = 0.1,
+        gamma: float = 2.0,
+        class_weights: torch.Tensor | None = None,
+    ) -> None:
         super().__init__()
         self.smoothing = smoothing
         self.gamma = gamma
+        if class_weights is not None:
+            self.register_buffer(
+                "class_weights", class_weights.float(), persistent=False
+            )
+        else:
+            self.class_weights = None
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         num_classes = logits.size(-1)
@@ -35,5 +42,7 @@ class FocalLossWithSmoothing(nn.Module):
             smooth_target.scatter_(1, targets.unsqueeze(1), 1.0 - self.smoothing)
 
         ce_loss = -smooth_target * log_probs
-        loss = focal_weight * ce_loss.sum(dim=-1, keepdim=True)
+        loss = focal_weight * ce_loss.sum(dim=-1).squeeze(-1)
+        if self.class_weights is not None:
+            loss = loss * self.class_weights[targets]
         return loss.mean()

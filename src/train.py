@@ -33,6 +33,7 @@ from models.cnn_baseline import CNNBaseline
 from models.cnn_lstm import CNNLSTM
 from models.cnn_lstm_improved import CNNLSTMImproved
 from models.cnn_transformer import CNNTransformer
+from models.compact_video_transformer import CompactVideoTransformer
 from models.internvideo import InternVideo2Classifier
 from models.pretrained_video import PretrainedVideoModel
 from models.tsm_resnet import TSMResNet
@@ -82,6 +83,20 @@ def build_model(cfg: DictConfig) -> nn.Module:
             lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
             dropout_p=float(cfg.model.get("dropout", 0.5)),
             num_frames=model_num_frames,
+        )
+    if name == "compact_video_transformer":
+        cvt_frames = model_num_frames if model_num_frames > 0 else 7
+        return CompactVideoTransformer(
+            num_classes=num_classes,
+            pretrained=pretrained,
+            num_frames=cvt_frames,
+            d_model=int(cfg.model.get("d_model", 256)),
+            num_layers=int(cfg.model.get("num_layers", 3)),
+            num_heads=int(cfg.model.get("num_heads", 4)),
+            mlp_ratio=float(cfg.model.get("mlp_ratio", 2.0)),
+            dropout=float(cfg.model.get("dropout", 0.15)),
+            attn_dropout=float(cfg.model.get("attn_dropout", 0.0)),
+            drop_path=float(cfg.model.get("drop_path", 0.05)),
         )
     if name == "cnn_transformer":
         ct_frames = model_num_frames if model_num_frames > 0 else 7
@@ -180,14 +195,6 @@ def _resolve_class_weights_for_training(
     if spec is None:
         return None
 
-    loss_name = loss_cfg.get("name", "cross_entropy")
-    if loss_name != "cross_entropy":
-        print(
-            "training.loss.class_weights is ignored when loss name is not "
-            "cross_entropy (focal_loss has no class weighting yet)."
-        )
-        return None
-
     if spec == "auto":
         mode = str(loss_cfg.get("class_weights_mode", "inverse_freq"))
         beta = float(loss_cfg.get("class_weights_beta", 0.9999))
@@ -224,19 +231,18 @@ def build_loss(
 
     Default: ``CrossEntropyLoss(label_smoothing=0.1)``. Setting
     ``training.loss.name = "focal_loss"`` switches to the focal variant.
-    Optional ``class_weights`` are applied only for cross-entropy.
+    Both support optional per-class ``class_weights``.
     """
     loss_cfg = cfg.training.get("loss", {}) or {}
     name = loss_cfg.get("name", "cross_entropy")
     label_smoothing = float(loss_cfg.get("label_smoothing", 0.1))
     if name == "focal_loss":
-        if class_weights is not None:
-            print(
-                "Ignoring class_weights: FocalLossWithSmoothing does not support "
-                "per-class weights in this codebase."
-            )
         gamma = float(loss_cfg.get("gamma", 2.0))
-        return FocalLossWithSmoothing(smoothing=label_smoothing, gamma=gamma)
+        return FocalLossWithSmoothing(
+            smoothing=label_smoothing,
+            gamma=gamma,
+            class_weights=class_weights,
+        )
     ce_kwargs: Dict[str, Any] = {"label_smoothing": label_smoothing}
     if class_weights is not None:
         ce_kwargs["weight"] = class_weights
@@ -244,17 +250,22 @@ def build_loss(
 
 
 def build_param_groups(model: nn.Module, weight_decay: float) -> list[dict]:
-    """Split parameters into two groups: with vs without weight decay.
+    """Split parameters into decay / no-decay groups for AdamW.
 
-    BatchNorm/LayerNorm parameters (rank-1 tensors) and biases get no weight
-    decay; the rest gets full weight decay. Standard recipe to avoid hurting
-    BN statistics and biases when training from scratch.
+    No weight decay on biases, norm scales (1D params), and any parameter
+    names returned by ``model.no_weight_decay()`` (ViT CLS / position embeds).
     """
+    skip_names: set[str] = set()
+    no_weight_decay_fn = getattr(model, "no_weight_decay", None)
+    if callable(no_weight_decay_fn):
+        skip_names = set(no_weight_decay_fn())
+
     decay, no_decay = [], []
-    for _name, param in model.named_parameters():
+    for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if param.ndim <= 1:
+        leaf = name.split(".")[-1]
+        if param.ndim <= 1 or leaf in skip_names:
             no_decay.append(param)
         else:
             decay.append(param)

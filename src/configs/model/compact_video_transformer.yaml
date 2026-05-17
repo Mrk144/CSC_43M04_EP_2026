@@ -1,0 +1,14 @@
+# @package _global_
+# Compact temporal transformer (~2–4M params): light conv stem + 3–4 blocks.
+model:
+  name: compact_video_transformer
+  pretrained: false
+  num_classes: ${num_classes}
+  num_frames: 7
+  d_model: 256
+  num_layers: 3
+  num_heads: 4
+  mlp_ratio: 2.0
+  dropout: 0.15
+  attn_dropout: 0.0
+  drop_path: 0.05

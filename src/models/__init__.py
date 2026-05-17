@@ -2,6 +2,7 @@ from models.cnn_baseline import CNNBaseline
 from models.cnn_lstm import CNNLSTM
 from models.cnn_lstm_improved import CNNLSTMImproved
 from models.cnn_transformer import CNNTransformer
+from models.compact_video_transformer import CompactVideoTransformer
 from models.internvideo import InternVideo2Classifier
 from models.pretrained_video import PretrainedVideoModel, available_backbones
 from models.tsm_resnet import TSMResNet
@@ -14,6 +15,7 @@ __all__ = [
     "CNNLSTM",
     "CNNLSTMImproved",
     "CNNTransformer",
+    "CompactVideoTransformer",
     "InternVideo2Classifier",
     "PretrainedVideoModel",
     "TSMResNet",

@@ -1,0 +1,28 @@
+# @package _global_
+# Track A: compact video transformer (light stem + temporal ViT, from scratch).
+defaults:
+  - override /model: compact_video_transformer
+
+model:
+  num_frames: 7
+  d_model: 256
+  num_layers: 3
+  num_heads: 4
+  mlp_ratio: 2.0
+  dropout: 0.15
+  drop_path: 0.05
+
+training:
+  batch_size: 64
+  lr: 3e-4
+  epochs: 50
+  warmup_epochs: 3
+  num_workers: 12
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

@@ -10,5 +10,5 @@ dataset:
 
   num_frames: 4
   val_ratio: 0.2
-  seed: 42
+  seed: 1
   max_samples: null

@@ -196,7 +196,7 @@ def _resolve_class_weights_for_training(
         return None
 
     if spec == "auto":
-        mode = str(loss_cfg.get("class_weights_mode", "inverse_freq"))
+        mode = str(loss_cfg.get("class_weights_mode", "effective_num"))
         beta = float(loss_cfg.get("class_weights_beta", 0.9999))
         counts = count_class_frequencies(train_samples, num_classes)
         weights = class_weights_from_counts(counts, mode=mode, beta=beta)
@@ -341,6 +341,34 @@ def train_one_epoch(
 
 
 @torch.no_grad()
+def log_prediction_snapshot(
+    model: nn.Module,
+    data_loader: DataLoader,
+    device: torch.device,
+    tag: str = "val",
+) -> None:
+    """Print argmax class histogram on one batch (debug collapse / label issues)."""
+    model.eval()
+    video_batch, labels = next(iter(data_loader))
+    video_batch = video_batch.to(device)
+    labels = labels.to(device)
+    with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
+        logits = model(video_batch)
+    preds = logits.argmax(dim=1)
+    counts = torch.bincount(preds, minlength=logits.size(-1))
+    top = counts.topk(min(5, counts.numel()))
+    top_str = ", ".join(
+        f"cls {i.item()}:{c.item()}" for i, c in zip(top.indices, top.values) if c > 0
+    )
+    match = float((preds == labels).float().mean().item())
+    print(
+        f"[{tag} batch] top preds: {top_str or 'none'} | "
+        f"batch acc {match:.3f} | labels [{int(labels.min())}, {int(labels.max())}]"
+    )
+    model.train()
+
+
+@torch.no_grad()
 def evaluate_epoch(
     model: nn.Module,
     data_loader: DataLoader,
@@ -396,8 +424,8 @@ def main(cfg: DictConfig) -> None:
         seed=int(cfg.dataset.seed),
     )
 
-    # Match normalization to pretrained flag (ImageNet stats when using pretrained weights).
-    use_imagenet_norm = bool(cfg.model.pretrained)
+    # ImageNet mean/std for all ResNet-style RGB models (scratch and pretrained).
+    use_imagenet_norm = bool(cfg.model.get("use_imagenet_norm", True))
     train_transform = build_transforms(
         is_training=True, use_imagenet_norm=use_imagenet_norm
     )
@@ -508,12 +536,18 @@ def main(cfg: DictConfig) -> None:
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Checkpoints will be written to: {checkpoint_path}")
 
+    if start_epoch == 0:
+        log_prediction_snapshot(model, val_loader, device, tag="val init")
+
     for epoch in range(start_epoch, int(cfg.training.epochs)):
         train_loss, train_acc = train_one_epoch(
             model, train_loader, loss_fn, optimizer, device, scaler
         )
         val_loss, val_acc = evaluate_epoch(model, val_loader, loss_fn, device)
         scheduler.step()
+
+        if epoch == start_epoch:
+            log_prediction_snapshot(model, val_loader, device, tag="val")
 
         current_lr = optimizer.param_groups[0]["lr"]
         print(

@@ -132,13 +132,21 @@ def class_weights_from_counts(
     counts: torch.Tensor,
     mode: str = "inverse_freq",
     beta: float = 0.9999,
+    max_weight_ratio: float = 50.0,
 ) -> torch.Tensor:
     """Per-class weights for ``CrossEntropyLoss`` (mean-normalized float32 vector).
 
-    - ``inverse_freq``: sklearn "balanced" style,
-      w_c = N / (C * max(n_c, 1)) with N the sum of clamped counts.
-    - ``effective_num``: Class-Balanced effective number (Cui et al.) on counts
-      clamped to at least 1, then w_c proportional to 1 / E_c, mean-normalized.
+    Only classes with ``counts > 0`` are reweighted. Absent classes get weight **0**
+    because with ``label_smoothing > 0`` PyTorch scales *each* smoothed class term
+    by ``weight[c]``; a large weight on a never-seen class (e.g. 27) forces the model
+    to predict that class only.
+
+    Weights are clipped to ``[mean/max_weight_ratio, mean*max_weight_ratio]`` on
+    present classes only.
+
+    - ``inverse_freq``: sklearn "balanced" style on present classes only,
+      w_c = N / (C_present * n_c).
+    - ``effective_num``: Class-Balanced effective number (Cui et al.).
     """
     if mode == "effective_num" and not (0.0 < beta < 1.0):
         raise ValueError(
@@ -146,18 +154,32 @@ def class_weights_from_counts(
         )
 
     counts = counts.to(dtype=torch.float64)
-    safe = torch.clamp(counts, min=1.0)
+    present = counts > 0
+    if not bool(present.any()):
+        return torch.ones_like(counts, dtype=torch.float32)
+
+    n_present = int(present.sum().item())
+    c = counts[present]
     if mode == "inverse_freq":
-        n = safe.sum()
-        w = n / (float(safe.numel()) * safe)
+        n = c.sum()
+        w_pos = n / (float(n_present) * c)
     elif mode == "effective_num":
         b = torch.tensor(beta, dtype=torch.float64)
-        eff_n = (1.0 - b.pow(safe)) / (1.0 - b)
-        w = 1.0 / eff_n
+        eff_n = (1.0 - b.pow(c)) / (1.0 - b)
+        w_pos = 1.0 / eff_n
     else:
         raise ValueError(
             f"Unknown class_weights_mode {mode!r}; "
             f"expected 'inverse_freq' or 'effective_num'"
         )
-    w = w / w.mean()
+
+    w = torch.zeros(counts.numel(), dtype=torch.float64)
+    w[present] = w_pos
+    w[present] = w[present] / w[present].mean()
+    if max_weight_ratio > 1.0:
+        mean_p = w[present].mean()
+        lo = mean_p / max_weight_ratio
+        hi = mean_p * max_weight_ratio
+        w[present] = w[present].clamp(min=lo, max=hi)
+        w[present] = w[present] / w[present].mean()
     return w.float()

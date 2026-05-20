@@ -12,7 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
-from checkpoint_utils import load_model_from_checkpoint
+from checkpoint_utils import infer_use_imagenet_norm, load_model_from_checkpoint
 from utils import build_transforms
 
 
@@ -158,8 +158,8 @@ def run_moe_evaluation(cfg: DictConfig) -> None:
             )
 
         model = load_model_from_checkpoint(raw, device)
-        pretrained_used = bool(OmegaConf.create(saved_cfg).model.get("pretrained", False))
-        eval_transform = build_transforms(is_training=False, use_imagenet_norm=pretrained_used)
+        use_imagenet = infer_use_imagenet_norm(raw, cfg)
+        eval_transform = build_transforms(is_training=False, use_imagenet_norm=use_imagenet)
         num_frames = int(raw.get("num_frames", cfg.dataset.num_frames))
 
         val_dataset = VideoFrameDataset(
@@ -235,8 +235,8 @@ def _expert_logits_on_samples(
         )
 
     model = load_model_from_checkpoint(raw, device)
-    pretrained_used = bool(OmegaConf.create(saved_cfg).model.get("pretrained", False))
-    eval_transform = build_transforms(is_training=False, use_imagenet_norm=pretrained_used)
+    use_imagenet = infer_use_imagenet_norm(raw, cfg)
+    eval_transform = build_transforms(is_training=False, use_imagenet_norm=use_imagenet)
     num_frames = int(raw.get("num_frames", cfg.dataset.num_frames))
 
     def _loader(sample_list: List[Tuple[Path, int]]) -> DataLoader:

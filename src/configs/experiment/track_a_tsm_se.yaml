@@ -1,16 +1,11 @@
 # @package _global_
-# Track A: compact video transformer (light stem + temporal ViT, from scratch).
+# Track A: TSM-ResNet18 + SE channel attention.
 defaults:
-  - override /model: compact_video_transformer
+  - override /model: tsm_resnet_se
 
 model:
   num_frames: 7
-  d_model: 256
-  num_layers: 3
-  num_heads: 4
-  mlp_ratio: 2.0
-  dropout: 0.15
-  drop_path: 0.05
+  se_ratio: 16
 
 training:
   batch_size: 64

@@ -1,0 +1,22 @@
+# @package _global_
+# Track A: TSM on ResNet34 backbone (from scratch).
+defaults:
+  - override /model: tsm_resnet34
+
+model:
+  num_frames: 7
+
+training:
+  batch_size: 64
+  lr: 3e-4
+  epochs: 40
+  warmup_epochs: 3
+  num_workers: 12
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
+  loss:
+    name: cross_entropy
+    label_smoothing: 0.1

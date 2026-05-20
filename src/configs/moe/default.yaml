@@ -17,14 +17,18 @@ dataset:
 moe:
   output_csv: ${hydra:runtime.cwd}/processed_data/val2/submission_moe.csv
   experts:
-    - name: cnn_lstm
-      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_02-06-19/best_model.pt
     - name: cnn_transformer
-      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_03-54-59/best_model.pt
+      checkpoint: ${hydra:runtime.cwd}/outputs/cnn_tr_s1_cu/best_model.pt
     - name: tsm_resnet
-      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_12-44-38/best_model.pt
+      checkpoint: ${hydra:runtime.cwd}/outputs/tsm_s1_cu/best_model.pt
     - name: tsm_two_stream
-      checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_14-41-02/best_model.pt
+      checkpoint: ${hydra:runtime.cwd}/outputs/two_stream_s1_cu/best_model.pt
+    - name: cnn_transformer2
+      checkpoint: ${hydra:runtime.cwd}/outputs/cnn_tr_s2_cu/best_model.pt
+    - name: tsm_resnet2
+      checkpoint: ${hydra:runtime.cwd}/outputs/tsm_s2_cu/best_model.pt
+    - name: tsm_two_stream2
+      checkpoint: ${hydra:runtime.cwd}/outputs/two_stream_s2_cu/best_model.pt
 
   combination: val_acc
   calibrate_temperature: true

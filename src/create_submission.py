@@ -32,7 +32,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from checkpoint_utils import load_model_from_checkpoint
+from checkpoint_utils import infer_use_imagenet_norm, load_model_from_checkpoint
 from dataset.video_dataset import VideoFrameDataset
 from moe_core import run_moe_submission
 from utils import build_transforms, set_seed
@@ -183,8 +183,8 @@ def _predict_one_checkpoint(
 
     saved_cfg = OmegaConf.create(ckpt.get("config") or ckpt.get("cfg") or {})
     num_frames = int(ckpt.get("num_frames", saved_cfg.get("dataset", {}).get("num_frames", cfg.dataset.num_frames)))
-    pretrained = bool(saved_cfg.get("model", {}).get("pretrained", ckpt.get("pretrained", False)))
-    eval_transform = build_transforms(is_training=False, use_imagenet_norm=pretrained)
+    use_imagenet_norm = infer_use_imagenet_norm(ckpt, cfg)
+    eval_transform = build_transforms(is_training=False, use_imagenet_norm=use_imagenet_norm)
 
     sample_list: List[Tuple[Path, int]] = [(p, 0) for p in video_dirs]
     dataset = VideoFrameDataset(

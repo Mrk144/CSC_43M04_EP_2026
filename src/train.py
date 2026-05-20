@@ -33,11 +33,15 @@ from models.cnn_baseline import CNNBaseline
 from models.cnn_lstm import CNNLSTM
 from models.cnn_lstm_improved import CNNLSTMImproved
 from models.cnn_transformer import CNNTransformer
-from models.compact_video_transformer import CompactVideoTransformer
 from models.internvideo import InternVideo2Classifier
 from models.pretrained_video import PretrainedVideoModel
 from models.tsm_resnet import TSMResNet
+from models.tsm_resnet34 import TSMResNet34
+from models.tsm_resnet_attn import TSMResNetAttn
+from models.tsm_resnet_rgbdiff import TSMResNetRgbDiff
+from models.tsm_resnet_se import TSMResNetSE
 from models.tsm_two_stream import TSMTwoStream
+from models.tsm_two_stream_gated import TSMTwoStreamGated
 from models.videomae import VideoMAEClassifier
 from models.vjepa2 import VJEPA2Classifier
 from utils import (
@@ -84,20 +88,6 @@ def build_model(cfg: DictConfig) -> nn.Module:
             dropout_p=float(cfg.model.get("dropout", 0.5)),
             num_frames=model_num_frames,
         )
-    if name == "compact_video_transformer":
-        cvt_frames = model_num_frames if model_num_frames > 0 else 7
-        return CompactVideoTransformer(
-            num_classes=num_classes,
-            pretrained=pretrained,
-            num_frames=cvt_frames,
-            d_model=int(cfg.model.get("d_model", 256)),
-            num_layers=int(cfg.model.get("num_layers", 3)),
-            num_heads=int(cfg.model.get("num_heads", 4)),
-            mlp_ratio=float(cfg.model.get("mlp_ratio", 2.0)),
-            dropout=float(cfg.model.get("dropout", 0.15)),
-            attn_dropout=float(cfg.model.get("attn_dropout", 0.0)),
-            drop_path=float(cfg.model.get("drop_path", 0.05)),
-        )
     if name == "cnn_transformer":
         ct_frames = model_num_frames if model_num_frames > 0 else 7
         return CNNTransformer(
@@ -122,6 +112,52 @@ def build_model(cfg: DictConfig) -> nn.Module:
             num_frames=tsm_frames,
             pretrained=pretrained,
             dropout_p=float(cfg.model.get("dropout", 0.5)),
+            fold_div=int(cfg.model.get("fold_div", 8)),
+        )
+    if name == "tsm_resnet_attn":
+        tsm_frames = model_num_frames if model_num_frames > 0 else int(
+            cfg.dataset.num_frames
+        )
+        return TSMResNetAttn(
+            num_classes=num_classes,
+            num_frames=tsm_frames,
+            pretrained=pretrained,
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
+            fold_div=int(cfg.model.get("fold_div", 8)),
+        )
+    if name == "tsm_resnet_rgbdiff":
+        tsm_frames = model_num_frames if model_num_frames > 0 else int(
+            cfg.dataset.num_frames
+        )
+        return TSMResNetRgbDiff(
+            num_classes=num_classes,
+            num_frames=tsm_frames,
+            pretrained=pretrained,
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
+            fold_div=int(cfg.model.get("fold_div", 8)),
+        )
+    if name == "tsm_resnet34":
+        tsm_frames = model_num_frames if model_num_frames > 0 else int(
+            cfg.dataset.num_frames
+        )
+        return TSMResNet34(
+            num_classes=num_classes,
+            num_frames=tsm_frames,
+            pretrained=pretrained,
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
+            fold_div=int(cfg.model.get("fold_div", 8)),
+        )
+    if name == "tsm_resnet_se":
+        tsm_frames = model_num_frames if model_num_frames > 0 else int(
+            cfg.dataset.num_frames
+        )
+        return TSMResNetSE(
+            num_classes=num_classes,
+            num_frames=tsm_frames,
+            pretrained=pretrained,
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
+            fold_div=int(cfg.model.get("fold_div", 8)),
+            se_ratio=int(cfg.model.get("se_ratio", 16)),
         )
     if name == "tsm_two_stream":
         tsm_frames = model_num_frames if model_num_frames > 0 else int(
@@ -132,6 +168,18 @@ def build_model(cfg: DictConfig) -> nn.Module:
             num_frames=tsm_frames,
             pretrained=pretrained,
             dropout_p=float(cfg.model.get("dropout", 0.5)),
+            fold_div=int(cfg.model.get("fold_div", 8)),
+        )
+    if name == "tsm_two_stream_gated":
+        tsm_frames = model_num_frames if model_num_frames > 0 else int(
+            cfg.dataset.num_frames
+        )
+        return TSMTwoStreamGated(
+            num_classes=num_classes,
+            num_frames=tsm_frames,
+            pretrained=pretrained,
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
+            fold_div=int(cfg.model.get("fold_div", 8)),
         )
     if name == "pretrained_video":
         pv_frames = model_num_frames if model_num_frames > 0 else 16
@@ -566,6 +614,9 @@ def main(cfg: DictConfig) -> None:
                 "model_name": cfg.model.name,
                 "num_classes": int(cfg.model.num_classes),
                 "pretrained": bool(cfg.model.pretrained),
+                "use_imagenet_norm": bool(
+                    cfg.model.get("use_imagenet_norm", True)
+                ),
                 "num_frames": int(cfg.dataset.num_frames),
                 "model_num_frames": int(cfg.model.get("num_frames", 0)),
                 "val_accuracy": val_acc,

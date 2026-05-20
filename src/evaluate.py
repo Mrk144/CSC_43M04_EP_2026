@@ -21,7 +21,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from checkpoint_utils import load_model_from_checkpoint
+from checkpoint_utils import infer_use_imagenet_norm, load_model_from_checkpoint
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
 from moe_core import run_moe_evaluation
 from utils import build_transforms, set_seed
@@ -34,8 +34,10 @@ def _evaluate_single_model(cfg: DictConfig, device: torch.device) -> None:
     )
     model = load_model_from_checkpoint(raw, device)
 
-    pretrained_used = bool(raw.get("pretrained", cfg.model.pretrained))
-    eval_transform = build_transforms(is_training=False, use_imagenet_norm=pretrained_used)
+    use_imagenet_norm = infer_use_imagenet_norm(raw, cfg)
+    eval_transform = build_transforms(
+        is_training=False, use_imagenet_norm=use_imagenet_norm
+    )
 
     val_dir = Path(cfg.dataset.val_dir).resolve()
     val_samples = collect_video_samples(val_dir)

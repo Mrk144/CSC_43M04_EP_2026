@@ -29,6 +29,14 @@ moe:
       checkpoint: ${hydra:runtime.cwd}/outputs/tsm_s2_cu/best_model.pt
     - name: tsm_two_stream2
       checkpoint: ${hydra:runtime.cwd}/outputs/two_stream_s2_cu/best_model.pt
+    - name: tsm_se
+      checkpoint: ${hydra:runtime.cwd}/outputs/tsm_se_s2_cu/best_model.pt
+    - name: tsm_resnet34
+      checkpoint: ${hydra:runtime.cwd}/outputs/tsm_34_s2_cu/best_model.pt
+    - name: tsm_rgb_diff
+      checkpoint: ${hydra:runtime.cwd}/outputs/rgbdiff_s2_cu/best_model.pt
+    - name: tsm_attn
+      checkpoint: ${hydra:runtime.cwd}/outputs/tsm_attn_s2_cu/best_model.pt
 
   combination: val_acc
   calibrate_temperature: true

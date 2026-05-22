@@ -1,6 +1,6 @@
 # @package _global_
 dataset:
-  # Train split: used by train.py with split_train_val (hold-out val for training curves).
+  # Train split: used by src/train with split_train_val (hold-out val for training curves).
   train_dir: ${hydra:runtime.cwd}/processed_data/val2/train
   # Full validation split: used by evaluate.py (no random split; entire folder).
   val_dir: ${hydra:runtime.cwd}/processed_data/val2/val

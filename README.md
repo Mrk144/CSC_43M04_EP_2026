@@ -32,7 +32,7 @@ cd src
 Or from the repo root:
 
 ```bash
-python src/train.py experiment=track_a_best
+python src/train experiment=track_a_best
 ```
 
 ## How the code is organized
@@ -42,7 +42,7 @@ python src/train.py experiment=track_a_best
 | `dataset/video_dataset.py` | Loads `T` frames per video folder, applies image transforms, returns tensors `(batch, time, channels, height, width)` and integer labels. |
 | `models/` | Neural networks: each model maps a batch of shape `(B, T, C, H, W)` to logits `(B, num_classes)`. |
 | `utils.py` | Image transforms, train/val split helper, seeds. |
-| `train.py` | Training loop; saves the best checkpoint by validation accuracy (full Hydra config + weights). |
+| `src/train` | Training loop; saves the best checkpoint by validation accuracy (full Hydra config + weights). |
 | `evaluate.py` | Rebuilds the model from the checkpoint config and reports **top-1** and **top-5** on the **full** validation directory (`dataset.val_dir`). |
 | `create_submission.py` | Loads a checkpoint, runs inference on the test split, writes `video_name,predicted_class`. |
 | `configs/` | [Hydra](https://hydra.cc/) YAML: **`experiment/`** (choose a preset), **`model/`**, **`data/`**, **`train/`**. |
@@ -60,14 +60,14 @@ An **experiment** selects which model and other settings (learning rate, optimiz
 Run:
 
 ```bash
-python src/train.py experiment=track_a_best
+python src/train experiment=track_a_best
 ```
 
 This sets the active `model` group (via Hydra `override /model: ...`). You can still override any field:
 
 ```bash
-python train.py experiment=track_a_best model.pretrained=false dataset.train_dir=/path/to/train
-python train.py training.epochs=10 training.batch_size=16 training.lr=0.0001
+python src/train experiment=track_a_best model.pretrained=false dataset.train_dir=/path/to/train
+python src/train training.epochs=10 training.batch_size=16 training.lr=0.0001
 ```
 
 The best checkpoint is written to **`training.checkpoint_path`** (see printed path). It always stores the **full merged Hydra config**, so evaluation and submission reload the same architecture automatically.
@@ -76,7 +76,7 @@ Hydra may create an `outputs/` folder with logs for each run.
 
 ## Evaluation
 
-Evaluation uses the **entire** validation set under **`dataset.val_dir`** (no random split). The checkpoint must have been produced by the current `train.py` (it needs the saved `config` inside the `.pt` file).
+Evaluation uses the **entire** validation set under **`dataset.val_dir`** (no random split). The checkpoint must have been produced by the current training entry point (it needs the saved `config` inside the `.pt` file).
 
 ```bash
 python evaluate.py training.checkpoint_path=best_model.pt
@@ -113,7 +113,7 @@ video_12345,7
    - **Input:** `(B, T, C, H, W)`  
    - **Output:** logits `(B, num_classes)`.
 
-2. **Register once** in `train.py` inside `build_model()`: add a branch for `cfg.model.name == "your_model_name"` and return your module.
+2. **Register once** in `src/train/__main__.py` inside `build_model()`: add a branch for `cfg.model.name == "your_model_name"` and return your module.
 
 3. **Add** `src/configs/model/your_model.yaml`:
 
@@ -139,7 +139,7 @@ video_12345,7
 5. **Train**:
 
    ```bash
-   python train.py experiment=your_experiment
+   python src/train experiment=your_experiment
    ```
 
 `evaluate.py` and `create_submission.py` do **not** need edits: they call `build_model` with the config saved in your checkpoint.

@@ -9,7 +9,7 @@ import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 
 from models.vjepa2 import _is_ssv2_classification_variant
-from train import build_model
+from model_factory import build_model
 
 # Track B experts: heavy VRAM, spatial resize inside the model, no TTA in MoE by default.
 FOUNDATION_MODEL_NAMES = frozenset({"videomae", "vjepa2", "internvideo2"})

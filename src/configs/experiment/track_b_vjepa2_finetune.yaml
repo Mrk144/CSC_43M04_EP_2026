@@ -13,7 +13,8 @@ model:
 training:
   batch_size: 4
   lr: 1e-5
-  epochs: 10
+
+  epochs: 30
   warmup_epochs: 1
   num_workers: 12
 

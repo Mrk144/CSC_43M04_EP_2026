@@ -1,15 +1,15 @@
 # Main Hydra config: composes model, data, train, and experiment bundle.
-# Run from `src/`:  python train.py experiment=track_a_best
+# From repo root:  python src/train.py  (or python src/train)
 defaults:
   - model: tsm_resnet
   - data: default
   - train: default
   - augmentation: default
-  - wandb: off
+  - wandb: "off"
   - experiment: track_a_best
   - _self_
 
-# Optional: where Hydra stores run outputs (checkpoints printed in train.py)
+# Optional: where Hydra stores run outputs (checkpoints printed in src/train)
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d_%H-%M-%S}

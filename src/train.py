@@ -1,21 +1,31 @@
 """
 Train a video classifier on folders of frames.
 
-Run from the ``src/`` directory (so ``configs/`` resolves)::
+From the repository root::
 
-    python train.py
+    python src/train.py
+    python src/train.py experiment=track_a_best
+
+Or the same via the launcher (no ``.py``)::
+
+    python src/train experiment=track_a_best
+
+From ``src/`` (legacy)::
+
     python train.py experiment=track_a_best
-
-Pick an **experiment** under ``configs/experiment/`` (each one selects a model and can
-add more overrides). You can still override any key, e.g. ``model.pretrained=false``.
-
-Training uses ``dataset.train_dir`` and ``split_train_val`` for an internal train/val
-split; the dedicated ``dataset.val_dir`` is for ``evaluate.py`` only.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+_SRC_DIR = Path(__file__).resolve().parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+_CONFIG_DIR = str(_SRC_DIR / "configs")
+
 from typing import Any, Dict, Tuple
 
 import hydra
@@ -29,17 +39,7 @@ from hydra.core.hydra_config import HydraConfig
 
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
 from losses import FocalLossWithSmoothing
-from models.cnn_lstm_improved import CNNLSTMImproved
-from models.cnn_transformer import CNNTransformer
-from models.internvideo import InternVideo2Classifier
-from models.efficientformer_bilstm import EfficientFormerBiLSTM
-from models.efficientformer_transformer import EfficientFormerTransformer
-from models.tsm_resnet import TSMResNet
-from models.tsm_resnet34 import TSMResNet34
-from models.tsm_resnet50 import TSMResNet50
-from models.tsm_two_stream_gated import TSMTwoStreamGated
-from models.videomae import VideoMAEClassifier
-from models.vjepa2 import VJEPA2Classifier
+from model_factory import build_model
 from utils import (
     build_transforms,
     class_weights_from_counts,
@@ -51,158 +51,6 @@ from utils import (
     split_train_val,
 )
 from wandb_utils import finish_wandb, log_epoch, setup_wandb
-
-
-def build_model(cfg: DictConfig) -> nn.Module:
-    """Create the model described by ``cfg.model.name``.
-
-    ``cfg.model.num_frames`` controls the *internal* temporal resolution the
-    backbone operates on (Track A => 7, Track B => 16). The model itself
-    interpolates the input from ``T_raw`` (whatever the dataset serves, 4 in
-    our case) to that target inside its forward pass, so the saved ``.pt`` is
-    self-contained.
-    """
-    name = cfg.model.name
-    num_classes = cfg.model.num_classes
-    pretrained = cfg.model.pretrained
-    model_num_frames = int(cfg.model.get("num_frames", 0))
-
-    if name == "cnn_lstm_improved":
-        return CNNLSTMImproved(
-            num_classes=num_classes,
-            pretrained=pretrained,
-            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            num_frames=model_num_frames,
-        )
-    if name == "cnn_transformer":
-        ct_frames = model_num_frames if model_num_frames > 0 else 7
-        return CNNTransformer(
-            num_classes=num_classes,
-            pretrained=pretrained,
-            num_frames=ct_frames,
-            spatial_tokens_side=int(cfg.model.get("spatial_tokens_side", 1)),
-            d_model=int(cfg.model.get("d_model", 512)),
-            num_layers=int(cfg.model.get("num_layers", 4)),
-            num_heads=int(cfg.model.get("num_heads", 8)),
-            mlp_ratio=float(cfg.model.get("mlp_ratio", 2.0)),
-            dropout=float(cfg.model.get("dropout", 0.1)),
-            attn_dropout=float(cfg.model.get("attn_dropout", 0.0)),
-            drop_path=float(cfg.model.get("drop_path", 0.1)),
-        )
-    if name == "tsm_resnet":
-        tsm_frames = model_num_frames if model_num_frames > 0 else int(
-            cfg.dataset.num_frames
-        )
-        return TSMResNet(
-            num_classes=num_classes,
-            num_frames=tsm_frames,
-            pretrained=pretrained,
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            fold_div=int(cfg.model.get("fold_div", 8)),
-        )
-    if name == "tsm_resnet34":
-        tsm_frames = model_num_frames if model_num_frames > 0 else int(
-            cfg.dataset.num_frames
-        )
-        return TSMResNet34(
-            num_classes=num_classes,
-            num_frames=tsm_frames,
-            pretrained=pretrained,
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            fold_div=int(cfg.model.get("fold_div", 8)),
-        )
-    if name == "tsm_resnet50":
-        tsm_frames = model_num_frames if model_num_frames > 0 else int(
-            cfg.dataset.num_frames
-        )
-        return TSMResNet50(
-            num_classes=num_classes,
-            num_frames=tsm_frames,
-            pretrained=pretrained,
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            fold_div=int(cfg.model.get("fold_div", 8)),
-        )
-    if name in ("tsm_two_stream_gated", "tsm_two_stream_gated_r50"):
-        tsm_frames = model_num_frames if model_num_frames > 0 else int(
-            cfg.dataset.num_frames
-        )
-        backbone = str(cfg.model.get("backbone", "resnet34"))
-        if name == "tsm_two_stream_gated_r50":
-            backbone = "resnet50"
-        return TSMTwoStreamGated(
-            num_classes=num_classes,
-            num_frames=tsm_frames,
-            pretrained=pretrained,
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            fold_div=int(cfg.model.get("fold_div", 8)),
-            backbone=backbone,
-        )
-    if name == "efficientformer_bilstm":
-        ef_frames = model_num_frames if model_num_frames > 0 else 7
-        return EfficientFormerBiLSTM(
-            num_classes=num_classes,
-            pretrained=pretrained,
-            num_frames=ef_frames,
-            variant=str(cfg.model.get("variant", "efficientformerv2_s1")),
-            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-        )
-    if name == "efficientformer_transformer":
-        ef_frames = model_num_frames if model_num_frames > 0 else 7
-        return EfficientFormerTransformer(
-            num_classes=num_classes,
-            pretrained=pretrained,
-            num_frames=ef_frames,
-            variant=str(cfg.model.get("variant", "efficientformerv2_s1")),
-            spatial_tokens_side=int(cfg.model.get("spatial_tokens_side", 1)),
-            num_layers=int(cfg.model.get("num_layers", 4)),
-            num_heads=int(cfg.model.get("num_heads", 8)),
-            mlp_ratio=float(cfg.model.get("mlp_ratio", 2.0)),
-            dropout=float(cfg.model.get("dropout", 0.1)),
-            attn_dropout=float(cfg.model.get("attn_dropout", 0.0)),
-            drop_path=float(cfg.model.get("drop_path", 0.1)),
-        )
-    if name == "videomae":
-        vm_frames = model_num_frames if model_num_frames > 0 else 16
-        return VideoMAEClassifier(
-            variant=str(cfg.model.get("variant", "MCG-NJU/videomae-base-finetuned-ssv2")),
-            num_classes=num_classes,
-            pretrained=pretrained,
-            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
-            num_frames=vm_frames,
-        )
-    if name == "vjepa2":
-        vj_frames = model_num_frames if model_num_frames > 0 else 16
-        return VJEPA2Classifier(
-            variant=str(
-                cfg.model.get("variant", "facebook/vjepa2-vitl-fpc16-256-ssv2")
-            ),
-            num_classes=num_classes,
-            pretrained=pretrained,
-            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
-            ignore_mismatched_sizes=bool(
-                cfg.model.get("ignore_mismatched_sizes", True)
-            ),
-            num_frames=vj_frames,
-            input_size=int(cfg.model.get("input_size", 256)),
-            dropout_p=float(cfg.model.get("dropout", 0.1)),
-        )
-    if name == "internvideo2":
-        iv_frames = model_num_frames if model_num_frames > 0 else 8
-        return InternVideo2Classifier(
-            variant=str(
-                cfg.model.get("variant", "OpenGVLab/InternVideo2-Stage2_1B-224p-f8")
-            ),
-            num_classes=num_classes,
-            pretrained=pretrained,
-            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
-            num_frames=iv_frames,
-            input_size=int(cfg.model.get("input_size", 224)),
-            dropout_p=float(cfg.model.get("dropout", 0.1)),
-        )
-
-    raise ValueError(f"Unknown model.name: {name}")
 
 
 def _resolve_class_weights_for_training(
@@ -248,12 +96,7 @@ def build_loss(
     cfg: DictConfig,
     class_weights: torch.Tensor | None = None,
 ) -> nn.Module:
-    """Pick the training loss from cfg.training.loss.
-
-    Default: ``FocalLossWithSmoothing`` (gamma=2, label_smoothing=0.1).
-    Set ``training.loss.name = cross_entropy`` for plain CE.
-    Both support optional per-class ``class_weights``.
-    """
+    """Pick the training loss from cfg.training.loss."""
     loss_cfg = cfg.training.get("loss", {}) or {}
     name = loss_cfg.get("name", "focal_loss")
     label_smoothing = float(loss_cfg.get("label_smoothing", 0.1))
@@ -271,11 +114,7 @@ def build_loss(
 
 
 def build_param_groups(model: nn.Module, weight_decay: float) -> list[dict]:
-    """Split parameters into decay / no-decay groups for AdamW.
-
-    No weight decay on biases, norm scales (1D params), and any parameter
-    names returned by ``model.no_weight_decay()`` (ViT CLS / position embeds).
-    """
+    """Split parameters into decay / no-decay groups for AdamW."""
     skip_names: set[str] = set()
     no_weight_decay_fn = getattr(model, "no_weight_decay", None)
     if callable(no_weight_decay_fn):
@@ -433,7 +272,7 @@ def evaluate_epoch(
     return average_loss, accuracy
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="config")
+@hydra.main(version_base=None, config_path=_CONFIG_DIR, config_name="config")
 def main(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg))
 
@@ -521,8 +360,8 @@ def main(cfg: DictConfig) -> None:
     else:
         optimizer = optim.Adam(param_groups, lr=lr)
 
-    epochs = int(cfg.training.epochs)
-    warmup_epochs = int(cfg.training.get("warmup_epochs", 0))
+    epochs = int(cfg.training.get("epochs", 30))
+    warmup_epochs = int(cfg.training.get("warmup_epochs", 3))
     scheduler = build_scheduler(
         optimizer, total_epochs=epochs, warmup_epochs=warmup_epochs
     )
@@ -542,10 +381,6 @@ def main(cfg: DictConfig) -> None:
             checkpoint = torch.load(
                 resume_path, map_location=device, weights_only=False
             )
-            # For a full resume the architecture must match exactly: catch any
-            # mismatch loudly instead of silently dropping params. For model-only
-            # (two-phase) loads we keep ``strict=False`` because the new
-            # classifier head intentionally differs from the pretrained shape.
             model.load_state_dict(
                 checkpoint["model_state_dict"], strict=not resume_model_only
             )

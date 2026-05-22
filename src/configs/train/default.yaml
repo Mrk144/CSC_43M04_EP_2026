@@ -1,13 +1,13 @@
 # @package _global_
+# Shared training defaults (Track A recipe). Experiments override batch_size, lr, etc.
 training:
   batch_size: 8
-  lr: 0.0001
-  epochs: 5
-  num_workers: 2
-  # Where to save the best checkpoint (by validation accuracy)
+  lr: 3.0e-4
+  epochs: 30
+  warmup_epochs: 3
+  num_workers: 12
   checkpoint_path: "best_model.pt"
   device: cuda
-  # Phase-2 / resume: load weights from a prior run (null = train from scratch / HF only)
   resume_from: null
   resume_model_only: false
 
@@ -19,7 +19,6 @@ training:
     name: focal_loss
     label_smoothing: 0.1
     gamma: 2.0
-    # null | auto | list of length model.num_classes (e.g. 33)
     class_weights: auto
-    class_weights_mode: effective_num # inverse_freq | effective_num
-    class_weights_beta: 0.9999 # used only for effective_num
+    class_weights_mode: effective_num
+    class_weights_beta: 0.9999

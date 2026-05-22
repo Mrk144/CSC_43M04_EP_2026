@@ -21,11 +21,3 @@ model:
 
 training:
   batch_size: 64
-  lr: 3e-4
-  epochs: 40
-  warmup_epochs: 3
-  num_workers: 12
-
-  optimizer:
-    name: adamw
-    weight_decay: 0.05

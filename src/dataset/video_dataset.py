@@ -148,6 +148,7 @@ class VideoFrameDataset(Dataset):
         num_frames: int,
         transform: Callable[[torch.Tensor], torch.Tensor],
         sample_list: Optional[List[Tuple[Path, int]]] = None,
+        hflip_prob: float = 0.0,
     ) -> None:
         """
         Args:
@@ -156,10 +157,12 @@ class VideoFrameDataset(Dataset):
                 number of frames on disk; missing slots are interpolated.
             transform: Applied to the entire video tensor (T, C, H, W).
             sample_list: Optional pre-built list of (video_dir, label).
+            hflip_prob: If > 0, random horizontal flip with label swap 18<->19.
         """
         self.root_dir = Path(root_dir)
         self.num_frames = num_frames
         self.transform = transform
+        self.hflip_prob = float(hflip_prob)
 
         if sample_list is None:
             self.samples = collect_video_samples(self.root_dir)
@@ -179,6 +182,13 @@ class VideoFrameDataset(Dataset):
             _load_frame_at_position(frame_paths, pos, cache) for pos in positions
         ]
         video_tensor = torch.stack(tensors, dim=0)
+
+        if self.hflip_prob > 0.0:
+            from utils import apply_horizontal_flip_video
+
+            video_tensor, label = apply_horizontal_flip_video(
+                video_tensor, label, prob=self.hflip_prob
+            )
 
         if self.transform is not None:
             video_tensor = self.transform(video_tensor)

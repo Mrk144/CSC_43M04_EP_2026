@@ -1,8 +1,0 @@
-# @package _global_
-# Track A baseline: ResNet18 + temporal average pooling, from scratch.
-defaults:
-  - override /model: cnn_baseline
-
-model:
-  pretrained: false
-  num_frames: 7

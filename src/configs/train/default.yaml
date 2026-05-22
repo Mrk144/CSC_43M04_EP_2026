@@ -11,9 +11,14 @@ training:
   resume_from: null
   resume_model_only: false
 
+  optimizer:
+    name: adamw
+    weight_decay: 0.05
+
   loss:
-    name: cross_entropy
+    name: focal_loss
     label_smoothing: 0.1
+    gamma: 2.0
     # null | auto | list of length model.num_classes (e.g. 33)
     class_weights: auto
     class_weights_mode: effective_num # inverse_freq | effective_num

@@ -103,7 +103,7 @@ class TransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.mlp = nn.Sequential(
             nn.Linear(d_model, hidden),
-            nn.GELU(),
+            nn.ReLU(inplace=True),
             nn.Dropout(dropout),
             nn.Linear(hidden, d_model),
             nn.Dropout(dropout),
@@ -363,18 +363,3 @@ class CNNTransformer(nn.Module):
 
 
 __all__ = ["CNNTransformer"]
-
-
-def _sanity_check() -> None:  # pragma: no cover
-    """Quick smoke test usable as ``python -m models.cnn_transformer``."""
-    torch.manual_seed(0)
-    m = CNNTransformer(num_classes=33, pretrained=False, num_frames=7)
-    x = torch.randn(2, 4, 3, 112, 112)
-    y = m(x)
-    assert y.shape == (2, 33), y.shape
-    n = sum(p.numel() for p in m.parameters() if p.requires_grad)
-    print(f"ok: out={tuple(y.shape)}, trainable params={n / 1e6:.2f}M")
-
-
-if __name__ == "__main__":  # pragma: no cover
-    _sanity_check()

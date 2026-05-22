@@ -1,8 +1,0 @@
-# @package _global_
-# Track B baseline: ResNet18 (ImageNet) + temporal average pooling.
-defaults:
-  - override /model: cnn_baseline
-
-model:
-  pretrained: true
-  num_frames: 16

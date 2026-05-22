@@ -3,8 +3,8 @@ from __future__ import annotations
 from models.tsm_backbone import TSMResNetBackbone
 
 
-class TSMResNet34(TSMResNetBackbone):
-    """TSM over a ResNet34 backbone (from scratch friendly)."""
+class TSMResNet50(TSMResNetBackbone):
+    """TSM + ResNet50 (2048-d features)."""
 
     def __init__(
         self,
@@ -16,7 +16,7 @@ class TSMResNet34(TSMResNetBackbone):
     ) -> None:
         super().__init__(
             num_classes=num_classes,
-            backbone="resnet34",
+            backbone="resnet50",
             num_frames=num_frames,
             pretrained=pretrained,
             dropout_p=dropout_p,

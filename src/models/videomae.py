@@ -17,9 +17,7 @@ Variants
 
 Notes
 -----
-- Normalization: VideoMAE uses ImageNet mean/std, which matches our
-  ``build_transforms(use_imagenet_norm=True)`` path activated when
-  ``model.pretrained=true``.
+- Normalization: VideoMAE expects ImageNet mean/std (applied in ``build_transforms``).
 - For phase 1 (linear probing), pass ``freeze_backbone=True``: only the
   classification head is trained.
 """

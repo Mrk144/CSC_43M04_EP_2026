@@ -12,23 +12,33 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
-from checkpoint_utils import infer_use_imagenet_norm, load_model_from_checkpoint
-from utils import build_transforms
+from checkpoint_utils import (
+    aug_cfg_for_expert,
+    expert_eval_settings,
+    load_model_from_checkpoint,
+)
+from utils import build_transforms, forward_logits_with_tta
+from wandb_utils import log_eval_results
 
 
 def collect_logits(
     model: nn.Module,
     data_loader: DataLoader,
     device: torch.device,
+    aug_cfg: DictConfig | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Returns (logits_all [N,C], labels_all [N]) on CPU float32."""
+    aug_cfg = aug_cfg or OmegaConf.create({})
     logits_chunks: List[torch.Tensor] = []
     labels_chunks: List[torch.Tensor] = []
     model.eval()
+    use_autocast = device.type == "cuda"
     with torch.inference_mode():
         for video_batch, labels in data_loader:
             video_batch = video_batch.to(device)
-            logits = model(video_batch)
+            logits = forward_logits_with_tta(
+                model, video_batch, aug_cfg, use_autocast=use_autocast
+            )
             logits_chunks.append(logits.detach().float().cpu())
             labels_chunks.append(labels.long().cpu())
     if not logits_chunks:
@@ -157,26 +167,35 @@ def run_moe_evaluation(cfg: DictConfig) -> None:
                 "(mixing head sizes is unsupported)."
             )
 
+        settings = expert_eval_settings(raw, cfg, entry_d)
+        print(
+            f"  [{name}] {settings['model_name']} | "
+            f"T={settings['num_frames']} | {settings['image_size']}px | "
+            f"bs={settings['batch_size']}",
+            flush=True,
+        )
+
         model = load_model_from_checkpoint(raw, device)
-        use_imagenet = infer_use_imagenet_norm(raw, cfg)
-        eval_transform = build_transforms(is_training=False, use_imagenet_norm=use_imagenet)
-        num_frames = int(raw.get("num_frames", cfg.dataset.num_frames))
+        eval_transform = build_transforms(
+            is_training=False, image_size=settings["image_size"]
+        )
+        aug_cfg = aug_cfg_for_expert(cfg, settings["model_name"])
 
         val_dataset = VideoFrameDataset(
             root_dir=val_dir,
-            num_frames=num_frames,
+            num_frames=settings["num_frames"],
             transform=eval_transform,
             sample_list=val_samples,
         )
         val_loader = DataLoader(
             val_dataset,
-            batch_size=int(cfg.training.batch_size),
+            batch_size=settings["batch_size"],
             shuffle=False,
             num_workers=int(cfg.training.num_workers),
             pin_memory=(device.type == "cuda"),
         )
 
-        logits, labels_ref = collect_logits(model, val_loader, device)
+        logits, labels_ref = collect_logits(model, val_loader, device, aug_cfg)
         del model
         if device.type == "cuda":
             torch.cuda.empty_cache()
@@ -208,6 +227,20 @@ def run_moe_evaluation(cfg: DictConfig) -> None:
     solo_best_top1 = max(top1_top5(logits_stack[i], labels_ref)[0] for i in range(k))
     print(f"\nBest expert top-1 (solo): {solo_best_top1:.4f}")
 
+    metrics: Dict[str, Any] = {
+        "eval/top1_accuracy": mix_top1,
+        "eval/top5_accuracy": mix_top5,
+        "eval/num_samples": len(val_samples),
+        "eval/solo_best_top1": solo_best_top1,
+        "eval/moe_combination": combination,
+    }
+    for i, name in enumerate(expert_names):
+        metrics[f"eval/moe_weight/{name}"] = float(weights_used[i].item())
+        acc1, acc5 = top1_top5(logits_stack[i], labels_ref)
+        metrics[f"eval/expert_top1/{name}"] = acc1
+        metrics[f"eval/expert_top5/{name}"] = acc5
+    log_eval_results(cfg, metrics)
+
 
 def _expert_logits_on_samples(
     cfg: DictConfig,
@@ -217,6 +250,7 @@ def _expert_logits_on_samples(
     data_root: Path,
     device: torch.device,
     *,
+    expert_entry: Dict[str, Any] | None = None,
     calibrate: bool = False,
     calib_samples: List[Tuple[Path, int]] | None = None,
     fixed_temperature: float | None = None,
@@ -234,21 +268,30 @@ def _expert_logits_on_samples(
             f"Expert {name}: checkpoint missing 'config' / 'cfg' (train with current train.py)."
         )
 
+    settings = expert_eval_settings(raw, cfg, expert_entry)
+    print(
+        f"  [{name}] {settings['model_name']} | "
+        f"T={settings['num_frames']} | {settings['image_size']}px | "
+        f"bs={settings['batch_size']}",
+        flush=True,
+    )
+
     model = load_model_from_checkpoint(raw, device)
-    use_imagenet = infer_use_imagenet_norm(raw, cfg)
-    eval_transform = build_transforms(is_training=False, use_imagenet_norm=use_imagenet)
-    num_frames = int(raw.get("num_frames", cfg.dataset.num_frames))
+    eval_transform = build_transforms(
+        is_training=False, image_size=settings["image_size"]
+    )
+    aug_cfg = aug_cfg_for_expert(cfg, settings["model_name"])
 
     def _loader(sample_list: List[Tuple[Path, int]]) -> DataLoader:
         dataset = VideoFrameDataset(
             root_dir=data_root,
-            num_frames=num_frames,
+            num_frames=settings["num_frames"],
             transform=eval_transform,
             sample_list=sample_list,
         )
         return DataLoader(
             dataset,
-            batch_size=int(cfg.training.batch_size),
+            batch_size=settings["batch_size"],
             shuffle=False,
             num_workers=int(cfg.training.num_workers),
             pin_memory=(device.type == "cuda"),
@@ -257,12 +300,14 @@ def _expert_logits_on_samples(
     temperature = fixed_temperature
     if calibrate and calib_samples and temperature is None:
         calib_loader = _loader(calib_samples)
-        calib_logits, calib_labels = collect_logits(model, calib_loader, device)
+        calib_logits, calib_labels = collect_logits(
+            model, calib_loader, device, aug_cfg
+        )
         temperature = find_temperature(calib_logits, calib_labels)
         print(f"  [{name}] temperature T={temperature:.3f} (from val)", flush=True)
 
     infer_loader = _loader(samples)
-    logits, _ = collect_logits(model, infer_loader, device)
+    logits, _ = collect_logits(model, infer_loader, device, aug_cfg)
     del model
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -354,6 +399,7 @@ def run_moe_submission(
                 val_samples,
                 val_dir,
                 device,
+                expert_entry=entry_d,
                 calibrate=False,
             )
             if val_labels_ref is None:
@@ -379,6 +425,7 @@ def run_moe_submission(
                 test_samples,
                 data_root,
                 device,
+                expert_entry=entry_d,
                 fixed_temperature=temperature,
             )
         else:
@@ -389,6 +436,7 @@ def run_moe_submission(
                 test_samples,
                 data_root,
                 device,
+                expert_entry=entry_d,
                 calibrate=calibrate,
                 calib_samples=val_samples if calibrate else None,
             )

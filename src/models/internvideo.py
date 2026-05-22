@@ -22,9 +22,7 @@ Variants
 
 Notes
 -----
-- InternVideo2 stage-2 checkpoints expect ImageNet normalization, which is
-  what ``build_transforms(use_imagenet_norm=True)`` already uses when
-  ``model.pretrained=true``.
+- InternVideo2 stage-2 checkpoints expect ImageNet normalization (``build_transforms``).
 - The encoder API may return ``(B, D)``, ``(B, N, D)`` or a dataclass
   depending on the variant; we handle the common shapes gracefully.
 """

@@ -1,0 +1,38 @@
+# @package _global_
+# MoE Track B: VideoMAE + V-JEPA2 (example paths — adjust to your outputs).
+#
+# Eval:
+#   python src/evaluate.py +moe=track_b_foundation moe.combination=mean
+#
+# Submission:
+#   python src/create_submission.py +moe=track_b_foundation moe.combination=mean
+#
+# Tips:
+#   - Each expert uses batch_size from its training config (or override below).
+#   - V-JEPA2 uses input_size=256 transforms; VideoMAE uses 224.
+#   - TTA is auto-disabled for foundation experts in MoE (VRAM).
+
+defaults:
+  - override /model: videomae
+
+dataset:
+  val_dir: ${hydra:runtime.cwd}/processed_data/val2/val
+  test_dir: ${hydra:runtime.cwd}/processed_data/val2/test
+  submission_output: ${hydra:runtime.cwd}/processed_data/val2/submission_moe_track_b.csv
+
+training:
+  batch_size: 8
+  num_workers: 4
+  device: cuda
+
+moe:
+  output_csv: ${dataset.submission_output}
+  combination: mean
+  calibrate_temperature: true
+  experts:
+    - name: videomae
+      checkpoint: ${hydra:runtime.cwd}/outputs/videomae_finetune/best_model.pt
+      batch_size: 8
+    - name: vjepa2
+      checkpoint: ${hydra:runtime.cwd}/outputs/vjepa2_finetune/best_model.pt
+      batch_size: 4

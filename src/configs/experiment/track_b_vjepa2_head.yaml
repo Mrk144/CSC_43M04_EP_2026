@@ -20,7 +20,3 @@ training:
   optimizer:
     name: adamw
     weight_decay: 0.05
-
-  loss:
-    name: cross_entropy
-    label_smoothing: 0.1

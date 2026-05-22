@@ -1,0 +1,15 @@
+# @package _global_
+# Train:  python train.py experiment=track_a_best +wandb=on
+# Eval:   python evaluate.py training.checkpoint_path=outputs/.../best_model.pt +wandb=on
+# Or override:  wandb.enabled=true wandb.project=my-project
+wandb:
+  enabled: true
+  project: csc-what-happens-next
+  entity: null
+  name: null
+  tags: []
+  notes: ""
+  mode: online
+  watch: false
+  watch_log: gradients
+  watch_log_freq: 100

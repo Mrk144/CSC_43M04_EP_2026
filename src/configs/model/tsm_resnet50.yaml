@@ -1,9 +1,8 @@
 # @package _global_
 model:
-  name: tsm_resnet_se
+  name: tsm_resnet50
   pretrained: false
   num_classes: ${num_classes}
   dropout: 0.5
   num_frames: 7
   fold_div: 8
-  se_ratio: 16

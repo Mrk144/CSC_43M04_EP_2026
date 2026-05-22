@@ -1,13 +1,13 @@
 # @package _global_
-# Track A: TSM-ResNet18 + temporal attention head (from scratch).
+# Track A: two-stream TSM gated fusion, ResNet50 per stream (VRAM-heavy).
 defaults:
-  - override /model: tsm_resnet_attn
+  - override /model: tsm_two_stream_gated_r50
 
 model:
   num_frames: 7
 
 training:
-  batch_size: 64
+  batch_size: 12
   lr: 3e-4
   epochs: 40
   warmup_epochs: 3
@@ -16,7 +16,3 @@ training:
   optimizer:
     name: adamw
     weight_decay: 0.05
-
-  loss:
-    name: cross_entropy
-    label_smoothing: 0.1

@@ -12,13 +12,13 @@ dataset:
 
 submission:
   models:
-    - name: cnn_lstm
+    - name: cnn_lstm_improved
       checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_02-06-19/best_model.pt
     - name: cnn_transformer
       checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_03-54-59/best_model.pt
     - name: tsm_resnet
       checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_12-44-38/best_model.pt
-    - name: tsm_two_stream
+    - name: tsm_two_stream_gated
       checkpoint: ${hydra:runtime.cwd}/outputs/2026-05-16_14-41-02/best_model.pt
 
   output_csv: ${hydra:runtime.cwd}/processed_data/val2/submission.csv

@@ -32,10 +32,14 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from checkpoint_utils import infer_use_imagenet_norm, load_model_from_checkpoint
+from checkpoint_utils import (
+    aug_cfg_for_expert,
+    expert_eval_settings,
+    load_model_from_checkpoint,
+)
 from dataset.video_dataset import VideoFrameDataset
 from moe_core import run_moe_submission
-from utils import build_transforms, set_seed
+from utils import build_transforms, forward_logits_with_tta, get_augmentation_cfg, set_seed
 
 
 def load_manifest_video_names(manifest_path: Path) -> List[str]:
@@ -140,16 +144,21 @@ def run_inference(
     device: torch.device,
     total_videos: int,
     model_label: str = "",
+    aug_cfg: DictConfig | None = None,
 ) -> List[int]:
     model.eval()
+    aug_cfg = aug_cfg or OmegaConf.create({})
     preds: List[int] = []
     n_batches = len(loader)
     log_interval = max(1, n_batches // 10)
     processed = 0
     prefix = f"[{model_label}] " if model_label else ""
+    use_autocast = device.type == "cuda"
     for batch_idx, (video_batch, _labels) in enumerate(loader, start=1):
         video_batch = video_batch.to(device)
-        logits = model(video_batch)
+        logits = forward_logits_with_tta(
+            model, video_batch, aug_cfg, use_autocast=use_autocast
+        )
         batch_pred = logits.argmax(dim=1).cpu().tolist()
         preds.extend(int(p) for p in batch_pred)
         bs = video_batch.size(0)
@@ -181,19 +190,20 @@ def _predict_one_checkpoint(
     )
     model = load_model_from_checkpoint(ckpt, device)
 
-    saved_cfg = OmegaConf.create(ckpt.get("config") or ckpt.get("cfg") or {})
-    num_frames = int(ckpt.get("num_frames", saved_cfg.get("dataset", {}).get("num_frames", cfg.dataset.num_frames)))
-    use_imagenet_norm = infer_use_imagenet_norm(ckpt, cfg)
-    eval_transform = build_transforms(is_training=False, use_imagenet_norm=use_imagenet_norm)
+    settings = expert_eval_settings(ckpt, cfg)
+    eval_transform = build_transforms(
+        is_training=False, image_size=settings["image_size"]
+    )
+    aug_cfg = aug_cfg_for_expert(cfg, settings["model_name"])
 
     sample_list: List[Tuple[Path, int]] = [(p, 0) for p in video_dirs]
     dataset = VideoFrameDataset(
         root_dir=test_root,
-        num_frames=num_frames,
+        num_frames=settings["num_frames"],
         transform=eval_transform,
         sample_list=sample_list,
     )
-    batch_size = int(cfg.training.batch_size)
+    batch_size = settings["batch_size"]
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -208,7 +218,12 @@ def _predict_one_checkpoint(
         flush=True,
     )
     predictions = run_inference(
-        model, loader, device, total_videos=len(dataset), model_label=model_label
+        model,
+        loader,
+        device,
+        total_videos=len(dataset),
+        model_label=model_label,
+        aug_cfg=aug_cfg,
     )
     del model
     if device.type == "cuda":

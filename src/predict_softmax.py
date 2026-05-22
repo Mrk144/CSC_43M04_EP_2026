@@ -93,8 +93,7 @@ def main(cfg: DictConfig) -> None:
     model = load_model_from_checkpoint(ckpt, device)
 
     num_frames = int(ckpt.get("num_frames", cfg.dataset.num_frames))
-    pretrained = bool(ckpt.get("pretrained", cfg.model.pretrained))
-    eval_transform = build_transforms(is_training=False, use_imagenet_norm=pretrained)
+    eval_transform = build_transforms(is_training=False)
     num_classes = int(ckpt.get("num_classes", cfg.model.num_classes))
 
     batch_size = int(cfg.training.batch_size)

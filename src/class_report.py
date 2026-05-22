@@ -193,8 +193,7 @@ def _run_one_model(
     num_classes = int(saved_cfg.model.num_classes)
 
     model = load_model_from_checkpoint(raw, device)
-    pretrained_used = bool(raw.get("pretrained", cfg.model.pretrained))
-    eval_transform = build_transforms(is_training=False, use_imagenet_norm=pretrained_used)
+    eval_transform = build_transforms(is_training=False)
 
     val_dir = Path(cfg.dataset.val_dir).resolve()
     val_samples = collect_video_samples(val_dir)

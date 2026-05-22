@@ -1,9 +1,0 @@
-# @package _global_
-# ResNet18 per frame + BiLSTM with attention pooling over time.
-# ``num_frames``: internal temporal length the LSTM operates on (0 = use raw T).
-model:
-  name: cnn_lstm
-  pretrained: true
-  num_classes: ${num_classes}
-  lstm_hidden_size: 128
-  num_frames: 0

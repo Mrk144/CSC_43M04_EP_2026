@@ -1,34 +1,27 @@
-from models.cnn_baseline import CNNBaseline
-from models.cnn_lstm import CNNLSTM
 from models.cnn_lstm_improved import CNNLSTMImproved
 from models.cnn_transformer import CNNTransformer
+from models.efficientformer_bilstm import EfficientFormerBiLSTM
+from models.efficientformer_transformer import EfficientFormerTransformer
 from models.internvideo import InternVideo2Classifier
-from models.pretrained_video import PretrainedVideoModel, available_backbones
+from models.tsm_backbone import TSMResNetBackbone
 from models.tsm_resnet import TSMResNet
 from models.tsm_resnet34 import TSMResNet34
-from models.tsm_resnet_attn import TSMResNetAttn
-from models.tsm_resnet_rgbdiff import TSMResNetRgbDiff
-from models.tsm_resnet_se import TSMResNetSE
-from models.tsm_two_stream import TSMTwoStream
+from models.tsm_resnet50 import TSMResNet50
 from models.tsm_two_stream_gated import TSMTwoStreamGated
 from models.videomae import VideoMAEClassifier
 from models.vjepa2 import VJEPA2Classifier
 
 __all__ = [
-    "CNNBaseline",
-    "CNNLSTM",
     "CNNLSTMImproved",
     "CNNTransformer",
+    "EfficientFormerBiLSTM",
+    "EfficientFormerTransformer",
     "InternVideo2Classifier",
-    "PretrainedVideoModel",
     "TSMResNet",
+    "TSMResNetBackbone",
     "TSMResNet34",
-    "TSMResNetAttn",
-    "TSMResNetRgbDiff",
-    "TSMResNetSE",
-    "TSMTwoStream",
+    "TSMResNet50",
     "TSMTwoStreamGated",
     "VideoMAEClassifier",
     "VJEPA2Classifier",
-    "available_backbones",
 ]

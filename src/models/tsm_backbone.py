@@ -1,4 +1,8 @@
+"""Shared TSM + ResNet backbone (18 / 34 / 50)."""
+
 from __future__ import annotations
+
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -7,43 +11,63 @@ from torchvision import models
 from models.temporal_utils import temporal_interpolate
 from models.tsm_resnet import install_temporal_shift
 
+BackboneName = Literal["resnet18", "resnet34", "resnet50"]
 
-class TemporalAttentionHead(nn.Module):
-    """Soft-attention pooling over temporal tokens (B, T, D)."""
-
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.score = nn.Linear(dim, 1)
-        nn.init.normal_(self.score.weight, 0.0, 0.01)
-        nn.init.constant_(self.score.bias, 0.0)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        w = torch.softmax(self.score(x), dim=1)
-        return (x * w).sum(dim=1)
+BACKBONE_FEATURE_DIM: dict[str, int] = {
+    "resnet18": 512,
+    "resnet34": 512,
+    "resnet50": 2048,
+}
 
 
-class TSMResNetAttn(nn.Module):
-    """TSM-ResNet18 with temporal attention pooling instead of mean pooling."""
+def _build_resnet(backbone: BackboneName, pretrained: bool) -> nn.Module:
+    if backbone == "resnet18":
+        weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
+        return models.resnet18(weights=weights)
+    if backbone == "resnet34":
+        weights = models.ResNet34_Weights.IMAGENET1K_V1 if pretrained else None
+        return models.resnet34(weights=weights)
+    if backbone == "resnet50":
+        weights = models.ResNet50_Weights.IMAGENET1K_V2 if pretrained else None
+        return models.resnet50(weights=weights)
+    raise ValueError(f"Unknown backbone: {backbone!r}")
+
+
+class TSMResNetBackbone(nn.Module):
+    """ResNet with TSM inside every BasicBlock / Bottleneck.
+
+    Forward: ``(B, T, C, H, W) -> (B, num_classes)``; ``encode`` returns pooled features.
+    """
 
     def __init__(
         self,
         num_classes: int,
+        backbone: BackboneName = "resnet18",
         num_frames: int = 7,
         pretrained: bool = False,
         dropout_p: float = 0.5,
         fold_div: int = 8,
     ) -> None:
         super().__init__()
-        self.num_frames = num_frames
+        if backbone not in BACKBONE_FEATURE_DIM:
+            raise ValueError(
+                f"backbone must be one of {list(BACKBONE_FEATURE_DIM)}; got {backbone!r}"
+            )
+        self.backbone_name = backbone
+        self.num_frames = int(num_frames)
+        self.feature_dim = BACKBONE_FEATURE_DIM[backbone]
 
-        weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
-        resnet = models.resnet18(weights=weights)
-        install_temporal_shift(resnet, num_frames=num_frames, fold_div=fold_div)
+        resnet = _build_resnet(backbone, pretrained)
+        install_temporal_shift(resnet, num_frames=self.num_frames, fold_div=fold_div)
 
         feature_dim = resnet.fc.in_features
+        if feature_dim != self.feature_dim:
+            raise RuntimeError(
+                f"Expected {self.feature_dim} features for {backbone}, got {feature_dim}"
+            )
         resnet.fc = nn.Identity()
         self.backbone = resnet
-        self.temporal_pool = TemporalAttentionHead(feature_dim)
+
         self.pool_dropout = nn.Dropout(p=dropout_p)
         self.fc = nn.Linear(feature_dim, num_classes)
 
@@ -73,9 +97,8 @@ class TSMResNetAttn(nn.Module):
     def encode(self, video_batch: torch.Tensor) -> torch.Tensor:
         video_batch = temporal_interpolate(video_batch, self.num_frames)
         b, t, c, h, w = video_batch.shape
-        x = video_batch.reshape(b * t, c, h, w)
-        feats = self.backbone(x).view(b, t, -1)
-        return self.temporal_pool(feats)
+        feats = self.backbone(video_batch.reshape(b * t, c, h, w))
+        return feats.view(b, t, -1).mean(dim=1)
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
         feats = self.pool_dropout(self.encode(video_batch))

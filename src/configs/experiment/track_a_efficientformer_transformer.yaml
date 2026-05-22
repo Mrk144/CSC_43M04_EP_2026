@@ -1,16 +1,15 @@
 # @package _global_
-# Track A: two-stream TSM gated fusion, ResNet34 per stream (default).
+# Track A: EfficientFormer V2 + temporal transformer (requires timm).
 defaults:
-  - override /model: tsm_two_stream_gated
+  - override /model: efficientformer_transformer
 
 model:
   num_frames: 7
-  backbone: resnet34
 
 training:
-  batch_size: 24
+  batch_size: 48
   lr: 3e-4
-  epochs: 40
+  epochs: 50
   warmup_epochs: 3
   num_workers: 12
 

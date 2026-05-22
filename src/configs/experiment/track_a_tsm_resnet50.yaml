@@ -1,14 +1,13 @@
 # @package _global_
-# Track A: TSM-ResNet18 + SE channel attention.
+# Track A: TSM + ResNet50 (single stream).
 defaults:
-  - override /model: tsm_resnet_se
+  - override /model: tsm_resnet50
 
 model:
   num_frames: 7
-  se_ratio: 16
 
 training:
-  batch_size: 64
+  batch_size: 32
   lr: 3e-4
   epochs: 40
   warmup_epochs: 3
@@ -17,7 +16,3 @@ training:
   optimizer:
     name: adamw
     weight_decay: 0.05
-
-  loss:
-    name: cross_entropy
-    label_smoothing: 0.1

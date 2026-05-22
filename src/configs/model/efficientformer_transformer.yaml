@@ -1,0 +1,15 @@
+# @package _global_
+# timm variant: efficientformerv2_s0 | efficientformerv2_s1 | efficientformerv2_l
+model:
+  name: efficientformer_transformer
+  pretrained: false
+  num_classes: ${num_classes}
+  num_frames: 7
+  variant: efficientformerv2_s1
+  spatial_tokens_side: 1
+  num_layers: 4
+  num_heads: 8
+  mlp_ratio: 2.0
+  dropout: 0.1
+  attn_dropout: 0.0
+  drop_path: 0.1

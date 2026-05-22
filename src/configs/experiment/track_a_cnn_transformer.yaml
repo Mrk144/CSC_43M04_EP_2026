@@ -6,7 +6,7 @@
 #     but BN/LN and biases are auto-excluded by build_param_groups.
 #   - Linear warmup 3 epochs, then cosine decay over the remaining epochs.
 #   - Label smoothing 0.1 to soften the 33-way classification.
-#   - Drop-path 0.1 and dropout 0.1 to regularise the transformer head.
+#   - Drop-path 0.1 and dropout 0.1 on the transformer head.
 defaults:
   - override /model: cnn_transformer
 
@@ -29,7 +29,3 @@ training:
   optimizer:
     name: adamw
     weight_decay: 0.05
-
-  loss:
-    name: cross_entropy
-    label_smoothing: 0.1

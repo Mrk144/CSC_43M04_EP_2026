@@ -32,7 +32,7 @@ cd src
 Or from the repo root:
 
 ```bash
-python src/train.py experiment=cnn_lstm
+python src/train.py experiment=track_a_best
 ```
 
 ## How the code is organized
@@ -53,19 +53,20 @@ The main composition file is `configs/config.yaml`. Global values such as `num_c
 
 An **experiment** selects which model and other settings (learning rate, optimizer, data augmentation) to use without editing Python. Defaults live in `configs/experiment/`:
 
-- `baseline_from_scratch` — ResNet18 backbone, average pooling over time (Track 1 - Closed World)
-- `baseline_pretrained` — pretrained ResNet18 backbone, average pooling over time (Track 2 - Open World)
+- `track_a_best` — TSM + ResNet18 (Track A, from scratch)
+- `track_a_cnn_lstm_improved` — ResNet18 + BiLSTM + attention pooling
+- `track_b_videomae_head` / `track_b_videomae_finetune` — VideoMAE (Track B)
 
 Run:
 
 ```bash
-python src/train.py experiment=baseline_from_scratch
+python src/train.py experiment=track_a_best
 ```
 
 This sets the active `model` group (via Hydra `override /model: ...`). You can still override any field:
 
 ```bash
-python train.py experiment=baseline_from_scratch model.pretrained=false dataset.train_dir=/path/to/train
+python train.py experiment=track_a_best model.pretrained=false dataset.train_dir=/path/to/train
 python train.py training.epochs=10 training.batch_size=16 training.lr=0.0001
 ```
 

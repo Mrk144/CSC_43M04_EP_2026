@@ -4,7 +4,7 @@ Train a video classifier on folders of frames.
 Run from the ``src/`` directory (so ``configs/`` resolves)::
 
     python train.py
-    python train.py experiment=cnn_lstm
+    python train.py experiment=track_a_best
 
 Pick an **experiment** under ``configs/experiment/`` (each one selects a model and can
 add more overrides). You can still override any key, e.g. ``model.pretrained=false``.
@@ -29,28 +29,28 @@ from hydra.core.hydra_config import HydraConfig
 
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
 from losses import FocalLossWithSmoothing
-from models.cnn_baseline import CNNBaseline
-from models.cnn_lstm import CNNLSTM
 from models.cnn_lstm_improved import CNNLSTMImproved
 from models.cnn_transformer import CNNTransformer
 from models.internvideo import InternVideo2Classifier
-from models.pretrained_video import PretrainedVideoModel
+from models.efficientformer_bilstm import EfficientFormerBiLSTM
+from models.efficientformer_transformer import EfficientFormerTransformer
 from models.tsm_resnet import TSMResNet
 from models.tsm_resnet34 import TSMResNet34
-from models.tsm_resnet_attn import TSMResNetAttn
-from models.tsm_resnet_rgbdiff import TSMResNetRgbDiff
-from models.tsm_resnet_se import TSMResNetSE
-from models.tsm_two_stream import TSMTwoStream
+from models.tsm_resnet50 import TSMResNet50
 from models.tsm_two_stream_gated import TSMTwoStreamGated
 from models.videomae import VideoMAEClassifier
 from models.vjepa2 import VJEPA2Classifier
 from utils import (
     build_transforms,
     class_weights_from_counts,
+    compute_loss,
     count_class_frequencies,
+    get_augmentation_cfg,
+    maybe_batch_augment,
     set_seed,
     split_train_val,
 )
+from wandb_utils import finish_wandb, log_epoch, setup_wandb
 
 
 def build_model(cfg: DictConfig) -> nn.Module:
@@ -67,19 +67,6 @@ def build_model(cfg: DictConfig) -> nn.Module:
     pretrained = cfg.model.pretrained
     model_num_frames = int(cfg.model.get("num_frames", 0))
 
-    if name == "cnn_baseline":
-        return CNNBaseline(
-            num_classes=num_classes,
-            pretrained=pretrained,
-            num_frames=model_num_frames,
-        )
-    if name == "cnn_lstm":
-        return CNNLSTM(
-            num_classes=num_classes,
-            pretrained=pretrained,
-            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
-            num_frames=model_num_frames,
-        )
     if name == "cnn_lstm_improved":
         return CNNLSTMImproved(
             num_classes=num_classes,
@@ -114,28 +101,6 @@ def build_model(cfg: DictConfig) -> nn.Module:
             dropout_p=float(cfg.model.get("dropout", 0.5)),
             fold_div=int(cfg.model.get("fold_div", 8)),
         )
-    if name == "tsm_resnet_attn":
-        tsm_frames = model_num_frames if model_num_frames > 0 else int(
-            cfg.dataset.num_frames
-        )
-        return TSMResNetAttn(
-            num_classes=num_classes,
-            num_frames=tsm_frames,
-            pretrained=pretrained,
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            fold_div=int(cfg.model.get("fold_div", 8)),
-        )
-    if name == "tsm_resnet_rgbdiff":
-        tsm_frames = model_num_frames if model_num_frames > 0 else int(
-            cfg.dataset.num_frames
-        )
-        return TSMResNetRgbDiff(
-            num_classes=num_classes,
-            num_frames=tsm_frames,
-            pretrained=pretrained,
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            fold_div=int(cfg.model.get("fold_div", 8)),
-        )
     if name == "tsm_resnet34":
         tsm_frames = model_num_frames if model_num_frames > 0 else int(
             cfg.dataset.num_frames
@@ -147,48 +112,56 @@ def build_model(cfg: DictConfig) -> nn.Module:
             dropout_p=float(cfg.model.get("dropout", 0.5)),
             fold_div=int(cfg.model.get("fold_div", 8)),
         )
-    if name == "tsm_resnet_se":
+    if name == "tsm_resnet50":
         tsm_frames = model_num_frames if model_num_frames > 0 else int(
             cfg.dataset.num_frames
         )
-        return TSMResNetSE(
-            num_classes=num_classes,
-            num_frames=tsm_frames,
-            pretrained=pretrained,
-            dropout_p=float(cfg.model.get("dropout", 0.5)),
-            fold_div=int(cfg.model.get("fold_div", 8)),
-            se_ratio=int(cfg.model.get("se_ratio", 16)),
-        )
-    if name == "tsm_two_stream":
-        tsm_frames = model_num_frames if model_num_frames > 0 else int(
-            cfg.dataset.num_frames
-        )
-        return TSMTwoStream(
+        return TSMResNet50(
             num_classes=num_classes,
             num_frames=tsm_frames,
             pretrained=pretrained,
             dropout_p=float(cfg.model.get("dropout", 0.5)),
             fold_div=int(cfg.model.get("fold_div", 8)),
         )
-    if name == "tsm_two_stream_gated":
+    if name in ("tsm_two_stream_gated", "tsm_two_stream_gated_r50"):
         tsm_frames = model_num_frames if model_num_frames > 0 else int(
             cfg.dataset.num_frames
         )
+        backbone = str(cfg.model.get("backbone", "resnet34"))
+        if name == "tsm_two_stream_gated_r50":
+            backbone = "resnet50"
         return TSMTwoStreamGated(
             num_classes=num_classes,
             num_frames=tsm_frames,
             pretrained=pretrained,
             dropout_p=float(cfg.model.get("dropout", 0.5)),
             fold_div=int(cfg.model.get("fold_div", 8)),
+            backbone=backbone,
         )
-    if name == "pretrained_video":
-        pv_frames = model_num_frames if model_num_frames > 0 else 16
-        return PretrainedVideoModel(
-            backbone=str(cfg.model.backbone),
+    if name == "efficientformer_bilstm":
+        ef_frames = model_num_frames if model_num_frames > 0 else 7
+        return EfficientFormerBiLSTM(
             num_classes=num_classes,
             pretrained=pretrained,
-            freeze_backbone=bool(cfg.model.get("freeze_backbone", False)),
-            num_frames=pv_frames,
+            num_frames=ef_frames,
+            variant=str(cfg.model.get("variant", "efficientformerv2_s1")),
+            lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
+            dropout_p=float(cfg.model.get("dropout", 0.5)),
+        )
+    if name == "efficientformer_transformer":
+        ef_frames = model_num_frames if model_num_frames > 0 else 7
+        return EfficientFormerTransformer(
+            num_classes=num_classes,
+            pretrained=pretrained,
+            num_frames=ef_frames,
+            variant=str(cfg.model.get("variant", "efficientformerv2_s1")),
+            spatial_tokens_side=int(cfg.model.get("spatial_tokens_side", 1)),
+            num_layers=int(cfg.model.get("num_layers", 4)),
+            num_heads=int(cfg.model.get("num_heads", 8)),
+            mlp_ratio=float(cfg.model.get("mlp_ratio", 2.0)),
+            dropout=float(cfg.model.get("dropout", 0.1)),
+            attn_dropout=float(cfg.model.get("attn_dropout", 0.0)),
+            drop_path=float(cfg.model.get("drop_path", 0.1)),
         )
     if name == "videomae":
         vm_frames = model_num_frames if model_num_frames > 0 else 16
@@ -277,12 +250,12 @@ def build_loss(
 ) -> nn.Module:
     """Pick the training loss from cfg.training.loss.
 
-    Default: ``CrossEntropyLoss(label_smoothing=0.1)``. Setting
-    ``training.loss.name = "focal_loss"`` switches to the focal variant.
+    Default: ``FocalLossWithSmoothing`` (gamma=2, label_smoothing=0.1).
+    Set ``training.loss.name = cross_entropy`` for plain CE.
     Both support optional per-class ``class_weights``.
     """
     loss_cfg = cfg.training.get("loss", {}) or {}
-    name = loss_cfg.get("name", "cross_entropy")
+    name = loss_cfg.get("name", "focal_loss")
     label_smoothing = float(loss_cfg.get("label_smoothing", 0.1))
     if name == "focal_loss":
         gamma = float(loss_cfg.get("gamma", 2.0))
@@ -355,22 +328,35 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     scaler: torch.amp.GradScaler,
+    *,
+    aug_cfg: DictConfig | None = None,
+    num_classes: int = 33,
+    label_smoothing: float = 0.0,
 ) -> Tuple[float, float]:
     """Returns (average loss, top-1 accuracy) on the training set for one epoch."""
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
+    aug_cfg = aug_cfg or OmegaConf.create({})
 
     for video_batch, labels in data_loader:
         video_batch = video_batch.to(device)
         labels = labels.to(device)
 
+        video_batch, labels, soft_targets = maybe_batch_augment(
+            video_batch,
+            labels,
+            aug_cfg,
+            num_classes=num_classes,
+            label_smoothing=label_smoothing,
+        )
+
         optimizer.zero_grad()
 
         with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
             logits = model(video_batch)
-            loss = loss_fn(logits, labels)
+            loss = compute_loss(loss_fn, logits, labels, soft_targets)
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -472,20 +458,21 @@ def main(cfg: DictConfig) -> None:
         seed=int(cfg.dataset.seed),
     )
 
-    # ImageNet mean/std for all ResNet-style RGB models (scratch and pretrained).
-    use_imagenet_norm = bool(cfg.model.get("use_imagenet_norm", True))
-    train_transform = build_transforms(
-        is_training=True, use_imagenet_norm=use_imagenet_norm
-    )
-    eval_transform = build_transforms(
-        is_training=False, use_imagenet_norm=use_imagenet_norm
-    )
+    aug_cfg = get_augmentation_cfg(cfg)
+    train_transform = build_transforms(is_training=True, aug_cfg=aug_cfg)
+    eval_transform = build_transforms(is_training=False, aug_cfg=aug_cfg)
+
+    hflip_prob = 0.0
+    hflip_block = aug_cfg.get("hflip")
+    if hflip_block is not None and bool(hflip_block.get("enabled", False)):
+        hflip_prob = float(hflip_block.get("prob", 0.5))
 
     train_dataset = VideoFrameDataset(
         root_dir=train_dir,
         num_frames=int(cfg.dataset.num_frames),
         transform=train_transform,
         sample_list=train_samples,
+        hflip_prob=hflip_prob,
     )
     val_dataset = VideoFrameDataset(
         root_dir=train_dir,
@@ -518,10 +505,12 @@ def main(cfg: DictConfig) -> None:
 
     loss_fn = build_loss(cfg, class_weights_tensor)
     loss_fn = loss_fn.to(device)
+    loss_cfg = cfg.training.get("loss", {}) or {}
+    label_smoothing = float(loss_cfg.get("label_smoothing", 0.1))
 
     opt_name = cfg.training.get("optimizer", {}).get("name", "adamw")
     lr = float(cfg.training.lr)
-    wd = float(cfg.training.get("optimizer", {}).get("weight_decay", 0.0))
+    wd = float(cfg.training.get("optimizer", {}).get("weight_decay", 0.05))
     param_groups = build_param_groups(model, weight_decay=wd)
 
     if opt_name == "adamw":
@@ -584,12 +573,22 @@ def main(cfg: DictConfig) -> None:
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Checkpoints will be written to: {checkpoint_path}")
 
+    setup_wandb(cfg, run_dir, model=model)
+
     if start_epoch == 0:
         log_prediction_snapshot(model, val_loader, device, tag="val init")
 
     for epoch in range(start_epoch, int(cfg.training.epochs)):
         train_loss, train_acc = train_one_epoch(
-            model, train_loader, loss_fn, optimizer, device, scaler
+            model,
+            train_loader,
+            loss_fn,
+            optimizer,
+            device,
+            scaler,
+            aug_cfg=aug_cfg,
+            num_classes=num_classes,
+            label_smoothing=label_smoothing,
         )
         val_loss, val_acc = evaluate_epoch(model, val_loader, loss_fn, device)
         scheduler.step()
@@ -604,7 +603,8 @@ def main(cfg: DictConfig) -> None:
             f"val loss {val_loss:.4f} acc {val_acc:.4f}"
         )
 
-        if val_acc > best_val_accuracy:
+        is_best = val_acc > best_val_accuracy
+        if is_best:
             best_val_accuracy = val_acc
             payload: Dict[str, Any] = {
                 "model_state_dict": model.state_dict(),
@@ -614,9 +614,6 @@ def main(cfg: DictConfig) -> None:
                 "model_name": cfg.model.name,
                 "num_classes": int(cfg.model.num_classes),
                 "pretrained": bool(cfg.model.pretrained),
-                "use_imagenet_norm": bool(
-                    cfg.model.get("use_imagenet_norm", True)
-                ),
                 "num_frames": int(cfg.dataset.num_frames),
                 "model_num_frames": int(cfg.model.get("num_frames", 0)),
                 "val_accuracy": val_acc,
@@ -632,7 +629,21 @@ def main(cfg: DictConfig) -> None:
                 f"  Saved new best model to {checkpoint_path} (val acc={val_acc:.4f})"
             )
 
+        log_epoch(
+            cfg,
+            epoch=epoch,
+            total_epochs=int(cfg.training.epochs),
+            train_loss=train_loss,
+            train_acc=train_acc,
+            val_loss=val_loss,
+            val_acc=val_acc,
+            lr=current_lr,
+            best_val_accuracy=best_val_accuracy,
+            is_best=is_best,
+        )
+
     print(f"Done. Best validation accuracy: {best_val_accuracy:.4f}")
+    finish_wandb(cfg)
 
 
 if __name__ == "__main__":

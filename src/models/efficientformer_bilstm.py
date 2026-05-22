@@ -1,8 +1,7 @@
 """
-CNNLSTMImproved: ResNet18 backbone + BiLSTM + attention pooling, plus a ReLU
-activation and dropout between the backbone and the LSTM, and a dropout in the
-classification head. Fixes a previous bug where ``self.apply(...)`` re-ran
-Kaiming init over the entire backbone, including pretrained ResNet weights.
+EfficientFormer V2 (timm) per-frame encoder + BiLSTM + attention pooling (Track A).
+
+Expects ImageNet-normalized inputs via ``build_transforms``.
 """
 
 from __future__ import annotations
@@ -10,55 +9,56 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.init as init
-from torchvision import models
 
+from models.cnn_lstm_improved import AttentionPool1d
 from models.temporal_utils import temporal_interpolate
 
-
-class AttentionPool1d(nn.Module):
-    """Soft attention over the temporal dim of a (B, T, D) sequence."""
-
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.score = nn.Linear(dim, 1)
-        nn.init.normal_(self.score.weight, 0, 0.01)
-        nn.init.constant_(self.score.bias, 0)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        scores = self.score(x)
-        weights = torch.softmax(scores, dim=1)
-        return (x * weights).sum(dim=1)
+try:
+    import timm
+except ImportError as e:  # pragma: no cover
+    raise ImportError(
+        "efficientformer_bilstm requires the 'timm' package. Install with: uv add timm"
+    ) from e
 
 
-class CNNLSTMImproved(nn.Module):
+class EfficientFormerBiLSTM(nn.Module):
+    """Per-frame EfficientFormer V2 + bidirectional LSTM + temporal attention."""
+
     def __init__(
         self,
         num_classes: int,
         pretrained: bool = False,
+        num_frames: int = 7,
+        variant: str = "efficientformerv2_s1",
         lstm_hidden_size: int = 256,
         dropout_p: float = 0.5,
-        num_frames: int = 0,
     ) -> None:
         super().__init__()
         self.num_frames = int(num_frames)
+        self.variant = variant
 
-        weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
-        backbone = models.resnet18(weights=weights)
-        feature_dim = backbone.fc.in_features
-        backbone.fc = nn.Identity()
-        self.backbone = backbone
+        self.backbone = timm.create_model(
+            variant,
+            pretrained=pretrained,
+            num_classes=0,
+            global_pool="avg",
+        )
+        feat_dim = int(getattr(self.backbone, "num_features", 0))
+        if feat_dim <= 0:
+            raise RuntimeError(
+                f"Could not read num_features from timm model {variant!r}"
+            )
+        self.feature_dim = feat_dim
 
         self.feature_dropout = nn.Dropout(p=dropout_p)
         self.activation = nn.ReLU(inplace=True)
-
         self.lstm = nn.LSTM(
-            input_size=feature_dim,
+            input_size=feat_dim,
             hidden_size=lstm_hidden_size,
             num_layers=1,
             batch_first=True,
             bidirectional=True,
         )
-
         pooled_dim = 2 * lstm_hidden_size
         self.attn_pool = AttentionPool1d(pooled_dim)
         self.classifier = nn.Sequential(
@@ -81,6 +81,7 @@ class CNNLSTMImproved(nn.Module):
                 init.normal_(m.weight, 0, 0.01)
                 if m.bias is not None:
                     init.constant_(m.bias, 0)
+
         if not pretrained:
             for m in self.backbone.modules():
                 if isinstance(m, nn.Conv2d):
@@ -89,20 +90,24 @@ class CNNLSTMImproved(nn.Module):
                     )
                     if m.bias is not None:
                         init.constant_(m.bias, 0)
-                elif isinstance(m, nn.BatchNorm2d):
-                    init.constant_(m.weight, 1)
-                    init.constant_(m.bias, 0)
+                elif isinstance(m, (nn.BatchNorm2d, nn.LayerNorm)):
+                    if hasattr(m, "weight") and m.weight is not None:
+                        init.constant_(m.weight, 1)
+                    if getattr(m, "bias", None) is not None:
+                        init.constant_(m.bias, 0)
+
+    def _encode_frames(self, frames: torch.Tensor) -> torch.Tensor:
+        """``frames``: (B*T, C, H, W) -> (B*T, feature_dim)."""
+        return self.backbone(frames)
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
         if self.num_frames > 0:
             video_batch = temporal_interpolate(video_batch, self.num_frames)
         b, t, c, h, w = video_batch.shape
         frames = video_batch.reshape(b * t, c, h, w)
-
-        frame_features = self.backbone(frames)
+        frame_features = self._encode_frames(frames)
         frame_features = self.activation(frame_features)
         frame_features = self.feature_dropout(frame_features)
-
         sequence = frame_features.view(b, t, -1)
         lstm_out, _ = self.lstm(sequence)
         pooled = self.attn_pool(lstm_out)

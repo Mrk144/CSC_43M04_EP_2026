@@ -8,6 +8,8 @@
 # Soumission test :
 #   python src/create_submission.py +moe=default moe.combination=mean
 #   python src/create_submission.py +moe=default moe.combination=val_acc
+#
+# Track B (VideoMAE + V-JEPA2): +moe=track_b_foundation
 
 dataset:
   val_dir: ${hydra:runtime.cwd}/processed_data/val2/val
@@ -21,22 +23,16 @@ moe:
       checkpoint: ${hydra:runtime.cwd}/outputs/cnn_tr_s1_cu/best_model.pt
     - name: tsm_resnet
       checkpoint: ${hydra:runtime.cwd}/outputs/tsm_s1_cu/best_model.pt
-    - name: tsm_two_stream
-      checkpoint: ${hydra:runtime.cwd}/outputs/two_stream_s1_cu/best_model.pt
+    - name: tsm_two_stream_gated
+      checkpoint: ${hydra:runtime.cwd}/outputs/two_stream_gated_s1_cu/best_model.pt
     - name: cnn_transformer2
       checkpoint: ${hydra:runtime.cwd}/outputs/cnn_tr_s2_cu/best_model.pt
     - name: tsm_resnet2
       checkpoint: ${hydra:runtime.cwd}/outputs/tsm_s2_cu/best_model.pt
-    - name: tsm_two_stream2
-      checkpoint: ${hydra:runtime.cwd}/outputs/two_stream_s2_cu/best_model.pt
-    - name: tsm_se
-      checkpoint: ${hydra:runtime.cwd}/outputs/tsm_se_s2_cu/best_model.pt
+    - name: tsm_two_stream_gated2
+      checkpoint: ${hydra:runtime.cwd}/outputs/two_stream_gated_s2_cu/best_model.pt
     - name: tsm_resnet34
       checkpoint: ${hydra:runtime.cwd}/outputs/tsm_34_s2_cu/best_model.pt
-    - name: tsm_rgb_diff
-      checkpoint: ${hydra:runtime.cwd}/outputs/rgbdiff_s2_cu/best_model.pt
-    - name: tsm_attn
-      checkpoint: ${hydra:runtime.cwd}/outputs/tsm_attn_s2_cu/best_model.pt
 
   combination: val_acc
   calibrate_temperature: true

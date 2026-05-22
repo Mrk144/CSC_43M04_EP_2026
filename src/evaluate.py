@@ -9,6 +9,10 @@ Evaluate on the **full** validation split (``dataset.val_dir``).
 
     python src/evaluate.py +moe=default
     python src/evaluate.py +moe=default moe.combination=mean
+
+**W&B** (optionnel) ::
+
+    python src/evaluate.py training.checkpoint_path=outputs/.../best_model.pt +wandb=on
 """
 
 from __future__ import annotations
@@ -18,26 +22,25 @@ from typing import Any, Dict
 
 import hydra
 import torch
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from checkpoint_utils import infer_use_imagenet_norm, load_model_from_checkpoint
+from checkpoint_utils import load_model_from_checkpoint
 from dataset.video_dataset import VideoFrameDataset, collect_video_samples
 from moe_core import run_moe_evaluation
-from utils import build_transforms, set_seed
+from utils import build_transforms, forward_logits_with_tta, get_augmentation_cfg, set_seed
+from wandb_utils import finish_wandb, log_eval_results, setup_wandb
 
 
-def _evaluate_single_model(cfg: DictConfig, device: torch.device) -> None:
+def _evaluate_single_model(cfg: DictConfig, device: torch.device) -> Dict[str, Any]:
     checkpoint_path = Path(cfg.training.checkpoint_path).resolve()
     raw: Dict[str, Any] = torch.load(
         checkpoint_path, map_location=device, weights_only=False
     )
     model = load_model_from_checkpoint(raw, device)
 
-    use_imagenet_norm = infer_use_imagenet_norm(raw, cfg)
-    eval_transform = build_transforms(
-        is_training=False, use_imagenet_norm=use_imagenet_norm
-    )
+    eval_transform = build_transforms(is_training=False)
 
     val_dir = Path(cfg.dataset.val_dir).resolve()
     val_samples = collect_video_samples(val_dir)
@@ -67,11 +70,15 @@ def _evaluate_single_model(cfg: DictConfig, device: torch.device) -> None:
     correct_top5 = 0
     total = 0
 
+    aug_cfg = get_augmentation_cfg(cfg)
+    use_autocast = device.type == "cuda"
     with torch.no_grad():
         for video_batch, labels in val_loader:
             video_batch = video_batch.to(device)
             labels = labels.to(device)
-            logits = model(video_batch)
+            logits = forward_logits_with_tta(
+                model, video_batch, aug_cfg, use_autocast=use_autocast
+            )
 
             predictions_top1 = logits.argmax(dim=1)
             correct_top1 += int((predictions_top1 == labels).sum().item())
@@ -89,6 +96,13 @@ def _evaluate_single_model(cfg: DictConfig, device: torch.device) -> None:
     print(f"Top-1 accuracy: {top1_accuracy:.4f}")
     print(f"Top-5 accuracy: {top5_accuracy:.4f}")
 
+    return {
+        "eval/top1_accuracy": top1_accuracy,
+        "eval/top5_accuracy": top5_accuracy,
+        "eval/num_samples": len(val_dataset),
+        "eval/checkpoint_path": str(checkpoint_path),
+    }
+
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -102,12 +116,18 @@ def main(cfg: DictConfig) -> None:
         device_str = "cpu"
     device = torch.device(device_str)
 
-    moe_cfg = cfg.get("moe")
-    if moe_cfg is not None and moe_cfg.get("experts"):
-        run_moe_evaluation(cfg)
-        return
+    run_dir = Path(HydraConfig.get().runtime.output_dir)
+    setup_wandb(cfg, run_dir, job_type="eval", name_prefix="eval_")
 
-    _evaluate_single_model(cfg, device)
+    try:
+        moe_cfg = cfg.get("moe")
+        if moe_cfg is not None and moe_cfg.get("experts"):
+            run_moe_evaluation(cfg)
+        else:
+            metrics = _evaluate_single_model(cfg, device)
+            log_eval_results(cfg, metrics)
+    finally:
+        finish_wandb(cfg)
 
 
 if __name__ == "__main__":

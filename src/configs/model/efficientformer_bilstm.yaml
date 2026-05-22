@@ -1,0 +1,9 @@
+# @package _global_
+model:
+  name: efficientformer_bilstm
+  pretrained: false
+  num_classes: ${num_classes}
+  num_frames: 7
+  variant: efficientformerv2_s1
+  lstm_hidden_size: 256
+  dropout: 0.5

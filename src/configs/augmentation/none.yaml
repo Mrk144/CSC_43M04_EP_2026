@@ -1,0 +1,18 @@
+# @package _global_
+# Disable extra augmentations (baseline transforms only: RRC + jitter + erasing off).
+augmentation:
+  enabled: true
+  random_resized_crop:
+    enabled: true
+  color_jitter:
+    enabled: false
+  random_erasing:
+    enabled: false
+  hflip:
+    enabled: false
+  mixup:
+    enabled: false
+  cutmix:
+    enabled: false
+  tta:
+    enabled: false

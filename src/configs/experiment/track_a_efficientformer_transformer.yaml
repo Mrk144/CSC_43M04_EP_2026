@@ -8,3 +8,4 @@ model:
 
 training:
   batch_size: 32
+  lr: 3.0e-4

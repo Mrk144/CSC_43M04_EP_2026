@@ -30,12 +30,12 @@ augmentation:
   mixup:
     enabled: true
     alpha: 0.2
-    prob: 0.35
+    prob: 0.15
 
   cutmix:
     enabled: true
     alpha: 1.0
-    prob: 0.35
+    prob: 0.15
 
   tta:
     enabled: false

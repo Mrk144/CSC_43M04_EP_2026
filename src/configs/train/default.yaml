@@ -2,7 +2,7 @@
 # Shared training defaults (Track A recipe). Experiments override batch_size, lr, etc.
 training:
   batch_size: 8
-  lr: 1.0e-3
+  lr: 5.0e-4
   epochs: 40
   warmup_epochs: 3
   num_workers: 12

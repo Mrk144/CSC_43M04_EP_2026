@@ -2,8 +2,8 @@
 # Shared training defaults (Track A recipe). Experiments override batch_size, lr, etc.
 training:
   batch_size: 8
-  lr: 3.0e-4
-  epochs: 30
+  lr: 1.0e-3
+  epochs: 40
   warmup_epochs: 3
   num_workers: 12
   checkpoint_path: "best_model.pt"
@@ -14,6 +14,12 @@ training:
   optimizer:
     name: adamw
     weight_decay: 0.05
+
+  scheduler:
+    name: cosine
+    eta_min: 1.0e-6
+    eta_min_ratio: null
+    t_max_ratio: 1.0
 
   loss:
     name: focal_loss

@@ -111,6 +111,7 @@ def build_model(cfg: DictConfig) -> nn.Module:
             variant=str(cfg.model.get("variant", "efficientformerv2_s1")),
             lstm_hidden_size=int(cfg.model.get("lstm_hidden_size", 256)),
             dropout_p=float(cfg.model.get("dropout", 0.5)),
+            backbone_chunk_size=int(cfg.model.get("backbone_chunk_size", 28)),
         )
     if name == "efficientformer_transformer":
         from models.efficientformer_transformer import EfficientFormerTransformer
@@ -128,6 +129,7 @@ def build_model(cfg: DictConfig) -> nn.Module:
             dropout=float(cfg.model.get("dropout", 0.1)),
             attn_dropout=float(cfg.model.get("attn_dropout", 0.0)),
             drop_path=float(cfg.model.get("drop_path", 0.1)),
+            backbone_chunk_size=int(cfg.model.get("backbone_chunk_size", 28)),
         )
     if name == "videomae":
         from models.videomae import VideoMAEClassifier

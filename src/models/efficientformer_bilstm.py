@@ -32,9 +32,11 @@ class EfficientFormerBiLSTM(nn.Module):
         variant: str = "efficientformerv2_s1",
         lstm_hidden_size: int = 256,
         dropout_p: float = 0.5,
+        backbone_chunk_size: int = 28,
     ) -> None:
         super().__init__()
         self.num_frames = int(num_frames)
+        self.backbone_chunk_size = max(1, int(backbone_chunk_size))
         self.variant = variant
 
         self.backbone = timm.create_model(
@@ -97,8 +99,15 @@ class EfficientFormerBiLSTM(nn.Module):
                         init.constant_(m.bias, 0)
 
     def _encode_frames(self, frames: torch.Tensor) -> torch.Tensor:
-        """``frames``: (B*T, C, H, W) -> (B*T, feature_dim)."""
-        return self.backbone(frames)
+        """``frames``: (B*T, C, H, W) -> (B*T, feature_dim), chunked for VRAM."""
+        chunk = self.backbone_chunk_size
+        n = frames.size(0)
+        if n <= chunk:
+            return self.backbone(frames)
+        return torch.cat(
+            [self.backbone(frames[i : i + chunk]) for i in range(0, n, chunk)],
+            dim=0,
+        )
 
     def forward(self, video_batch: torch.Tensor) -> torch.Tensor:
         if self.num_frames > 0:

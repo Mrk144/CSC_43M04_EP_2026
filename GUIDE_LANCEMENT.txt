@@ -38,6 +38,13 @@ Environnement :
   • Variable shell utile pour les exemples ci-dessous :
       export CKPT=/abs/chemin/vers/best_model.pt
 
+  • Défauts entraînement Track A (configs/train/default.yaml) :
+      lr 1e-3 | epochs 40 | warmup 3 | AdamW wd 0.05 | focal loss
+      Scheduler : warmup linéaire puis cosine (eta_min 1e-6, t_max_ratio 1.0).
+      Ralentir le cosine :
+        training.scheduler.eta_min=3e-5
+        training.scheduler.t_max_ratio=2.0
+
 
 --------------------------------------------------------------------------------
 1. DONNÉES (configs/data/default.yaml)
@@ -66,15 +73,15 @@ contredit — équilibre du fichier experiment).
 
   experiment                  | Modèle (group)     | model.num_frames | batch | lr      | epochs | warmup | notes
   -----------------------------+-------------------+----------------+-------+---------+--------+--------+------
-  track_a_best                 | tsm_resnet        | 7              | 64    | 3e-4    | 30     | 3      | Référence Track A
-  track_a_tsm_resnet34         | tsm_resnet34      | 7              | 64    | 3e-4    | 30     | 3      |
-  track_a_tsm_resnet50         | tsm_resnet50      | 7              | 32    | 3e-4    | 30     | 3      |
-  track_a_two_stream_gated     | tsm_two_stream_gated | 7           | 24    | 3e-4    | 30     | 3      | RGB + diff, gate R34
-  track_a_two_stream_gated_r50 | tsm_two_stream_gated | 7         | 12    | 3e-4    | 30     | 3      | backbone ResNet50
-  track_a_cnn_lstm_improved    | cnn_lstm_improved | 7              | 64    | 3e-4    | 30     | 3      | ResNet18 + BiLSTM
-  track_a_cnn_transformer      | cnn_transformer   | 7              | 64    | 3e-4    | 30     | 3      | ResNet18 + transformer
-  track_a_efficientformer_bilstm | efficientformer_bilstm | 7      | 48    | 3e-4    | 30     | 3      | timm + BiLSTM
-  track_a_efficientformer_transformer | efficientformer_transformer | 7 | 48 | 3e-4 | 30 | 3 | timm + transformer
+  track_a_best                 | tsm_resnet        | 7              | 64    | 1e-3    | 40     | 3      | Référence Track A
+  track_a_tsm_resnet34         | tsm_resnet34      | 7              | 64    | 1e-3    | 40     | 3      |
+  track_a_tsm_resnet50         | tsm_resnet50      | 7              | 32    | 1e-3    | 40     | 3      |
+  track_a_two_stream_gated     | tsm_two_stream_gated | 7           | 24    | 1e-3    | 40     | 3      | RGB + diff, gate R34
+  track_a_two_stream_gated_r50 | tsm_two_stream_gated | 7         | 12    | 1e-3    | 40     | 3      | backbone ResNet50
+  track_a_cnn_lstm_improved    | cnn_lstm_improved | 7              | 64    | 1e-3    | 40     | 3      | ResNet18 + BiLSTM
+  track_a_cnn_transformer      | cnn_transformer   | 7              | 64    | 1e-3    | 40     | 3      | ResNet18 + transformer
+  track_a_efficientformer_bilstm | efficientformer_bilstm | 7      | 16    | 1e-3    | 40     | 3      | timm + BiLSTM (~16 GB)
+  track_a_efficientformer_transformer | efficientformer_transformer | 7 | 12 | 1e-3 | 40 | 3 | timm + transformer (~16 GB)
 
 Commandes (depuis la racine du repo) :
 

@@ -135,17 +135,39 @@ def build_param_groups(model: nn.Module, weight_decay: float) -> list[dict]:
     ]
 
 
+def _resolve_scheduler_eta_min(
+    scheduler_cfg: Dict[str, Any],
+    lr: float,
+    *,
+    default: float = 1e-6,
+) -> float:
+    ratio = scheduler_cfg.get("eta_min_ratio")
+    if ratio is not None:
+        return float(lr) * float(ratio)
+    return float(scheduler_cfg.get("eta_min", default))
+
+
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
     total_epochs: int,
     warmup_epochs: int,
-    eta_min: float = 1e-6,
+    *,
+    lr: float,
+    scheduler_cfg: Dict[str, Any] | None = None,
 ) -> torch.optim.lr_scheduler.LRScheduler:
     """Linear warmup over ``warmup_epochs`` then cosine annealing for the rest."""
+    scheduler_cfg = scheduler_cfg or {}
+    eta_min = _resolve_scheduler_eta_min(scheduler_cfg, lr)
+    t_max_ratio = float(scheduler_cfg.get("t_max_ratio", 1.0))
+
     if warmup_epochs <= 0 or warmup_epochs >= total_epochs:
+        cosine_t_max = max(1, int(max(total_epochs, 1) * t_max_ratio))
         return optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=max(total_epochs, 1), eta_min=eta_min
+            optimizer, T_max=cosine_t_max, eta_min=eta_min
         )
+
+    post_warmup = max(total_epochs - warmup_epochs, 1)
+    cosine_t_max = max(1, int(post_warmup * t_max_ratio))
     warmup = optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=1.0 / max(warmup_epochs * 5, 1),
@@ -153,7 +175,7 @@ def build_scheduler(
         total_iters=warmup_epochs,
     )
     cosine = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=max(total_epochs - warmup_epochs, 1), eta_min=eta_min
+        optimizer, T_max=cosine_t_max, eta_min=eta_min
     )
     return optim.lr_scheduler.SequentialLR(
         optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs]
@@ -360,10 +382,17 @@ def main(cfg: DictConfig) -> None:
     else:
         optimizer = optim.Adam(param_groups, lr=lr)
 
-    epochs = int(cfg.training.get("epochs", 30))
+    epochs = int(cfg.training.get("epochs", 40))
     warmup_epochs = int(cfg.training.get("warmup_epochs", 3))
+    scheduler_cfg = cfg.training.get("scheduler", {}) or {}
     scheduler = build_scheduler(
-        optimizer, total_epochs=epochs, warmup_epochs=warmup_epochs
+        optimizer,
+        total_epochs=epochs,
+        warmup_epochs=warmup_epochs,
+        lr=lr,
+        scheduler_cfg=OmegaConf.to_container(scheduler_cfg, resolve=True)
+        if scheduler_cfg
+        else {},
     )
 
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))

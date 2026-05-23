@@ -7,4 +7,4 @@ model:
   num_frames: 7
 
 training:
-  batch_size: 48
+  batch_size: 32

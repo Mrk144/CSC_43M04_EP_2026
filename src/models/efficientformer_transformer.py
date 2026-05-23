@@ -41,9 +41,11 @@ class EfficientFormerTransformer(nn.Module):
         dropout: float = 0.1,
         attn_dropout: float = 0.0,
         drop_path: float = 0.1,
+        backbone_chunk_size: int = 28,
     ) -> None:
         super().__init__()
         self.num_frames = int(num_frames)
+        self.backbone_chunk_size = max(1, int(backbone_chunk_size))
         self.spatial_tokens_side = int(spatial_tokens_side)
         self.variant = variant
 
@@ -161,6 +163,19 @@ class EfficientFormerTransformer(nn.Module):
         return names
 
     def _extract_frame_features(self, frames: torch.Tensor) -> torch.Tensor:
+        """Run timm backbone in chunks along the frame axis (B*T) to limit VRAM."""
+        chunk = self.backbone_chunk_size
+        n = frames.size(0)
+        if n <= chunk:
+            chunks = [self._backbone_forward_frames(frames)]
+        else:
+            chunks = [
+                self._backbone_forward_frames(frames[i : i + chunk])
+                for i in range(0, n, chunk)
+            ]
+        return torch.cat(chunks, dim=0)
+
+    def _backbone_forward_frames(self, frames: torch.Tensor) -> torch.Tensor:
         feat = self.backbone(frames)
         if feat.dim() == 2:
             side = int(round(feat.shape[1] ** 0.5))

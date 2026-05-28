@@ -36,3 +36,4 @@ moe:
 
   combination: val_acc
   calibrate_temperature: true
+python src/create_submission.py +moe=track_b_3vjepa1_videomae moe.combination=val_acc training.device=cuda training.num_workers=12

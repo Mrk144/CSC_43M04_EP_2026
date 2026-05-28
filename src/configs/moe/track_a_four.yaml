@@ -1,0 +1,51 @@
+# @package _global_
+# MoE Track A: 1x TSM Two-Stream Gated (r34) + 3x TSM ResNet (18/34/50)
+#
+# Soumission (test, CSV) :
+#   uv run python src/create_submission.py +moe=track_a_four_tsm_and_twostream_r34 training.num_workers=14
+# (val_acc => nécessite un pass sur dataset.val_dir pour calculer les poids)
+
+defaults:
+  - override /model: tsm_resnet
+
+dataset:
+  val_dir: ${hydra:runtime.cwd}/processed_data/val2/val
+  test_dir: ${hydra:runtime.cwd}/processed_data/val2/test
+  submission_output: ${hydra:runtime.cwd}/processed_data/val2/submission_moe_track_a_four.csv
+
+moe:
+  output_csv: ${dataset.submission_output}
+  combination: val_acc
+  calibrate_temperature: true
+
+  experts:
+    - name: tsm_two_stream_gated_r34
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_two_stream_gated_r34/best_model.pt
+      batch_size: 8
+    - name: tsm_resnet18
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_tsm_resnet18/best_model.pt
+      batch_size: 8
+    - name: tsm_resnet34
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_tsm_resnet34/best_model.pt
+      batch_size: 8
+    - name: tsm_resnet50
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_tsm_resnet50/best_model.pt
+      batch_size: 8
+    - name: best
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_best/best_model.pt
+      batch_size: 8
+    - name: best_30_ep
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_best_30ep/best_model.pt
+      batch_size: 8
+    - name: cnn_lstm_improved_30ep
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_cnn_lstm_improved_30ep/best_model.pt
+      batch_size: 8
+    - name: cnn_transformer_30ep
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_cnn_transformer_30ep/best_model.pt
+      batch_size: 8
+    - name: tsm_resnet34_30ep
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_tsm_resnet34_30ep/best_model.pt
+      batch_size: 8
+    - name: two_stream_gated_30ep
+      checkpoint: ${hydra:runtime.cwd}/outputs/track_a_two_stream_gated_30ep/best_model.pt
+      batch_size: 8

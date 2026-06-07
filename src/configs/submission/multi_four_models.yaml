@@ -1,11 +1,4 @@
 # @package _global_
-# 4 modèles → UN seul CSV d'ensemble (vote majoritaire).
-#
-# Depuis la racine :
-#   python src/create_submission.py +submission=multi_four_models
-#
-# Fichier produit : processed_data/val2/submission.csv
-
 dataset:
   test_dir: ${hydra:runtime.cwd}/processed_data/val2/test
   submission_output: ${hydra:runtime.cwd}/processed_data/val2/submission.csv

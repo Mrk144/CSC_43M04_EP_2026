@@ -1,5 +1,4 @@
 # @package _global_
-# Track A: TSM + ResNet50 (single stream).
 defaults:
   - override /model: tsm_resnet50
 

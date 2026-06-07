@@ -1,5 +1,4 @@
 # @package _global_
-# Track A: CNN-LSTM improved (BiLSTM + attention), 7 frames via interpolation.
 defaults:
   - override /model: cnn_lstm_improved
 

@@ -1,5 +1,4 @@
 # @package _global_
-# Shared training defaults (Track A recipe). Experiments override batch_size, lr, etc.
 training:
   batch_size: 8
   lr: 5.0e-4

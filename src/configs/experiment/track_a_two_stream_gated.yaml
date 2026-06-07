@@ -1,5 +1,4 @@
 # @package _global_
-# Track A: two-stream TSM gated fusion, ResNet34 per stream (default).
 defaults:
   - override /model: tsm_two_stream_gated
 

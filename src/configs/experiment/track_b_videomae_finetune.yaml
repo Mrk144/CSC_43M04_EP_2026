@@ -1,8 +1,4 @@
 # @package _global_
-# Track B phase 2: full backbone finetune with a small lr, resuming the model
-# weights trained in phase 1 (head only). Pass the phase-1 checkpoint via:
-#   training.resume_from=/abs/path/to/phase1/best_model.pt
-# The dataset serves the raw 4 frames; VideoMAE upsamples to 16 internally.
 defaults:
   - override /model: videomae
 

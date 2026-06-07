@@ -1,17 +1,4 @@
 # @package _global_
-# MoE Track B: VideoMAE + V-JEPA2 (example paths — adjust to your outputs).
-#
-# Eval:
-#   python src/evaluate.py +moe=track_b_foundation moe.combination=mean
-#
-# Submission:
-#   python src/create_submission.py +moe=track_b_foundation moe.combination=mean
-#
-# Tips:
-#   - Each expert uses batch_size from its training config (or override below).
-#   - V-JEPA2 uses input_size=256 transforms; VideoMAE uses 224.
-#   - TTA is auto-disabled for foundation experts in MoE (VRAM).
-
 defaults:
   - override /model: videomae
 

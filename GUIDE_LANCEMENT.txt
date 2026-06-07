@@ -121,7 +121,7 @@ tsm_resnet seul ; réduisez batch_size si OOM.
 
 Depuis la racine du dépôt (phase 1 puis phase 2 avec reprise du .pt) :
 
-  # Exemple VideoMAE
+  # VideoMAE
   python src/train experiment=track_b_videomae_head
   python src/train experiment=track_b_videomae_finetune \
     training.resume_from=outputs/<run_phase1>/best_model.pt
@@ -251,7 +251,6 @@ Méthodes :
 
   • Réduire training.batch_size (foundation models : 8 → 4 → 2 → 1).
   • track_a_best batch 64 → 32 ou 16
-  • model.variant Kinetics au lieu de SSv2 si besoin (moins adapté à la tâche)
   • dataset.max_samples pour valider le pipeline sans saturer la mémoire
 
 
@@ -268,7 +267,7 @@ Méthodes :
   training.resume_from
   training.resume_model_only
   training.num_workers
-  training.optimizer.name     adamw | sgd | adam
+  training.optimizer.name     adamw | sgd
   training.optimizer.weight_decay
   training.loss.name          focal_loss (defaut) | cross_entropy
   training.loss.label_smoothing
@@ -279,17 +278,15 @@ Méthodes :
 
 
 --------------------------------------------------------------------------------
-10. ENCHAÎNEMENT TYPE COMPÉTITION
+10. ENCHAÎNEMENT
 --------------------------------------------------------------------------------
 
-  A) Entraîner (from scratch Track A et/ou pré-entraîné Track B), noter chaque
-     .../best_model.pt
+  A) Entraîner (from scratch Track A et/ou pré-entraîné Track B)
   B) evaluate.py sur chaque .pt
   C) predict_softmax.py par .pt → dossiers preds distincts
   D) Renseigner configs/ensemble/default.yaml puis ensemble.py
   E) Soumettre le CSV final (meilleur solo ou ensemble)
 
-
 ================================================================================
-  Fin du guide — remplacer $CKPT et les chemins /abs par tes chemins réels.
+  Fin du guide — remplacer $CKPT et les chemins /abs par les chemins réels.
 ================================================================================

@@ -1,10 +1,4 @@
 # @package _global_
-# Data augmentation (train) + optional TTA (eval / submission).
-#
-# Horizontal flip swaps labels 18 <-> 19:
-#   018_Pulling_something_from_left_to_right
-#   019_Pulling_something_from_right_to_left
-
 augmentation:
   enabled: true
 

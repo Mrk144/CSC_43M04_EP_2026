@@ -1,11 +1,4 @@
 # @package _global_
-# Précision / rappel par classe + matrice de confusion (val).
-#
-# Depuis la racine :
-#   python src/class_report.py +report=default
-#
-# CSV dans processed_data/val2/reports/ si output_dir est défini.
-
 dataset:
   val_dir: ${hydra:runtime.cwd}/processed_data/val2/val
 

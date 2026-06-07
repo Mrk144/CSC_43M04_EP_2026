@@ -1,5 +1,4 @@
 # @package _global_
-# Track A: TSM on ResNet34 backbone (from scratch).
 defaults:
   - override /model: tsm_resnet34
 

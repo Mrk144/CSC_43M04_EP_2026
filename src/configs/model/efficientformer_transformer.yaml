@@ -1,5 +1,4 @@
 # @package _global_
-# timm variant: efficientformerv2_s0 | efficientformerv2_s1 | efficientformerv2_l
 model:
   name: efficientformer_transformer
   pretrained: false

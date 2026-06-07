@@ -1,10 +1,4 @@
 # @package _global_
-# MoE Track A: 1x TSM Two-Stream Gated (r34) + 3x TSM ResNet (18/34/50)
-#
-# Soumission (test, CSV) :
-#   uv run python src/create_submission.py +moe=track_a_four_tsm_and_twostream_r34 training.num_workers=14
-# (val_acc => nécessite un pass sur dataset.val_dir pour calculer les poids)
-
 defaults:
   - override /model: tsm_resnet
 

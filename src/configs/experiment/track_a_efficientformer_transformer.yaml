@@ -1,5 +1,4 @@
 # @package _global_
-# Track A: EfficientFormer V2 + temporal transformer (requires timm).
 defaults:
   - override /model: efficientformer_transformer
 

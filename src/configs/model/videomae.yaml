@@ -1,10 +1,4 @@
 # @package _global_
-# VideoMAE ViT-B from HuggingFace (Track B / open world).
-# Variants:
-#   - MCG-NJU/videomae-base-finetuned-ssv2 (recommended, closest to this task)
-#   - MCG-NJU/videomae-base-finetuned-kinetics
-# ``num_frames`` must match the VideoMAE positional embeddings (16 for the
-# base variants). Interpolation from raw 4 frames is done inside the model.
 model:
   name: videomae
   variant: MCG-NJU/videomae-base-finetuned-ssv2

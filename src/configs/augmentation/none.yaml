@@ -1,5 +1,4 @@
 # @package _global_
-# Disable extra augmentations (baseline transforms only: RRC + jitter + erasing off).
 augmentation:
   enabled: true
   random_resized_crop:

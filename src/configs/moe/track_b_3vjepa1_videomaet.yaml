@@ -1,12 +1,4 @@
 # @package _global_
-# MoE: 3x V-JEPA2 (SSv2 s3/s4/s5) + 1x VideoMAE (SSv2 fine-tune)
-#
-# Éval (si tu veux) :
-#   python src/evaluate.py +moe=track_b_3vjepa1_videomae moe.combination=val_acc
-#
-# Soumission :
-#   python src/create_submission.py +moe=track_b_3vjepa1_videomae moe.combination=val_acc
-
 defaults:
   - override /model: videomae
 
@@ -17,7 +9,6 @@ dataset:
 
 moe:
   output_csv: ${dataset.submission_output}
-  # val_acc: ajuste les poids sur les logits de la val (labels requis), puis applique sur le test.
   combination: val_acc
   calibrate_temperature: true
 

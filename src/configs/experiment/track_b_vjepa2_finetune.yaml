@@ -1,6 +1,4 @@
 # @package _global_
-# Track B phase 2: full V-JEPA2 finetune with a small lr, resuming the head-only
-# checkpoint from phase 1.  Pass --training.resume_from=<phase1.pt>.
 defaults:
   - override /model: vjepa2
 

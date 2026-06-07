@@ -1,8 +1,4 @@
 # @package _global_
-# Track A best so far: TSM-ResNet18 from scratch, CE + label smoothing,
-# AdamW with linear warmup -> cosine schedule.
-# The backbone internally upsamples 4 raw frames -> 7 (one interpolated
-# frame between each pair of original frames).
 defaults:
   - override /model: tsm_resnet
 

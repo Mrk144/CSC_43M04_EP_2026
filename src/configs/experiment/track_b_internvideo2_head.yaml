@@ -1,5 +1,4 @@
 # @package _global_
-# Track B phase 1: linear probing on InternVideo2 stage-2 (head only).
 defaults:
   - override /model: internvideo2
 
